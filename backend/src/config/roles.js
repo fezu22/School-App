@@ -1,0 +1,17 @@
+export const ROLES = [
+  "SUPER_ADMIN",
+  "PRINCIPAL",
+  "TEACHER",
+  "ACCOUNTANT",
+  "EXAM_OFFICER",
+  "ACADEMIC_COORDINATOR",
+  "HR",
+  "LIBRARIAN",
+  "INVENTORY",
+  "TRANSPORT",
+  "HOSTEL",
+  "STUDENT",
+  "PARENT",
+  "AUDITOR",
+  "IT_SUPPORT",
+];
