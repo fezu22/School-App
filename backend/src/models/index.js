@@ -12,6 +12,7 @@ export { FeePlan } from "./FeePlan.js";
 export { Payment } from "./Payment.js";
 export { Refund } from './Refund.js';
 export { CashClosing } from './CashClosing.js';
+export { CashEntry } from './CashEntry.js';
 export { Audit } from "./Audit.js";
 export { Settings } from "./Settings.js";
 export { Timetable } from "./Timetable.js";

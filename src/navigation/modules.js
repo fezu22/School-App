@@ -93,7 +93,7 @@ export const MODULES = [
     title: 'Fee plans',
     screen: 'FeePlans',
     group: 'Records',
-    roles: ['SUPER_ADMIN', 'ACCOUNTANT'],
+    roles: ['SUPER_ADMIN', 'ACCOUNTANT', 'PRINCIPAL'],
   },
   {
     title: 'Cash closing', screen: 'CashClosing', group: 'Records',
