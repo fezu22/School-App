@@ -35,7 +35,7 @@ before(async () => {
   process.env.JWT_SECRET = "test-only-secret-of-more-than-32-characters";
   mongo = await MongoMemoryReplSet.create({
     binary: { version: "7.0.14" },
-    replSet: { count: 1, args: ["--nounixsocket"] },
+    replSet: { count: 1 },
   });
   await mongoose.connect(mongo.getUri());
   await Promise.all(Object.values(mongoose.models).map((m) => m.init()));

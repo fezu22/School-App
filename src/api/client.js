@@ -5,6 +5,13 @@ let selectionVersion = 0;
 let childSelectionRequired = false;
 let unauthorizedHandler = null;
 let invalidChildHandler = null;
+const CHILD_SELECTION_EXEMPT_PATHS = new Set([
+  '/auth/login',
+  '/auth/me',
+  '/auth/logout',
+  '/auth/password',
+  '/branding',
+]);
 export function setAccessToken(token) {
   accessToken = token;
 }
@@ -31,7 +38,8 @@ export async function api(path, method = 'GET', body, options = {}) {
   if (
     childSelectionRequired &&
     !selectedChildId &&
-    !(path === '/students' && options.withoutSelectedChild)
+    !(path === '/students' && options.withoutSelectedChild) &&
+    !CHILD_SELECTION_EXEMPT_PATHS.has(path)
   )
     throw Object.assign(
       Error('Choose a linked child before viewing school records.'),

@@ -157,7 +157,7 @@ export function makeCredentialTemplates() {
     ['STUDENT', 'student.mia@example.com', 'Mia Student', false, true],
     ['STUDENT', 'student.eli@example.com', 'Eli Student', false, true],
     ['PARENT', 'parent.lee@example.com', 'Sam Lee', false, true],
-    ['PARENT', 'parent.park@example.com', 'Alex Park', false, true],
+    ['PARENT', 'parent.park@example.com', 'Alex Park', true, true],
     ['PARENT', 'parent.khan@example.com', 'Jamie Khan', false, false],
   ];
   return roles.map(([role, email, name, mustChangePassword, active]) => ({
@@ -183,10 +183,13 @@ function makeCredentials(existing) {
   }));
 }
 
-async function syncCredentialStates(persistedAccounts) {
+export async function syncCredentialStates(
+  persistedAccounts,
+  filePath = credentialPath,
+) {
   let payload;
   try {
-    payload = JSON.parse(await readFile(credentialPath, 'utf8'));
+    payload = JSON.parse(await readFile(filePath, 'utf8'));
   } catch {
     return;
   }
@@ -204,12 +207,12 @@ async function syncCredentialStates(persistedAccounts) {
         }
       : account;
   });
-  const temporary = credentialPath + '.tmp';
+  const temporary = filePath + '.tmp';
   await writeFile(temporary, JSON.stringify(payload, null, 2) + '\n', {
     flag: 'w',
     mode: 0o600,
   });
-  await rename(temporary, credentialPath);
+  await rename(temporary, filePath);
 }
 
 export async function buildSeedPlan(anchorDate, accounts) {
@@ -331,9 +334,22 @@ export async function buildSeedPlan(anchorDate, accounts) {
       classKey: 'south-2',
     },
   ];
-  const studentIds = Object.fromEntries(
-    studentFixtures.map(({ key }, i) => [key, id(`student:${i + 1}`)]),
-  );
+  // Keep the existing stable demo IDs, but bind them to explicit fixture keys.
+  // Do not let a fixture reorder silently move a login to another student.
+  const studentIds = {
+    ava: id('student:1'),
+    leo: id('student:2'),
+    ivy: id('student:3'),
+    noah: id('student:4'),
+    mia: id('student:5'),
+    owen: id('student:6'),
+    eli: id('student:7'),
+    zoe: id('student:8'),
+    finn: id('student:9'),
+    nia: id('student:10'),
+    arlo: id('student:11'),
+    uma: id('student:12'),
+  };
   const classIds = Object.fromEntries(
     ['north-1', 'north-2', 'south-1', 'south-2'].map((key, i) => [
       key,
@@ -686,15 +702,15 @@ export async function buildSeedPlan(anchorDate, accounts) {
     source: 'AI',
   };
   assignments.push(fixtureHomeAssignment);
-  const quizAnswers = [
-    [0, 0, 0],
-    [1, 0, 0],
-    [1, 1, 0],
+  const quizFixtures = [
+    { studentKey: 'zoe', answers: [0, 0, 0] },
+    { studentKey: 'finn', answers: [1, 0, 0] },
+    { studentKey: 'nia', answers: [1, 1, 0] },
   ];
-  const quizAttempts = quizAnswers.map((answers, i) => ({
+  const quizAttempts = quizFixtures.map(({ studentKey, answers }, i) => ({
     _id: id(`quiz-attempt:${i}`),
     lectureId: lectureIds[1],
-    studentId: studentIds[['zoe', 'finn', 'nia'][i]],
+    studentId: studentIds[studentKey],
     answers,
     score: answers.reduce(
       (total, answer, qi) =>
@@ -810,10 +826,10 @@ export async function buildSeedPlan(anchorDate, accounts) {
   return { documents, manifest, attendanceDayCount: attendanceDays.length };
 }
 
-async function loadOrCreateCredentials() {
+async function loadOrCreateCredentials(filePath = credentialPath) {
   let existing;
   try {
-    existing = JSON.parse(await readFile(credentialPath, 'utf8'));
+    existing = JSON.parse(await readFile(filePath, 'utf8'));
   } catch (error) {
     if (error.code !== 'ENOENT')
       throw new Error('Credentials file exists but is not readable JSON.');
@@ -846,13 +862,13 @@ async function loadOrCreateCredentials() {
       }),
     ),
   };
-  await mkdir(path.dirname(credentialPath), { recursive: true });
-  const tempPath = credentialPath + '.tmp';
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const tempPath = filePath + '.tmp';
   await writeFile(tempPath, JSON.stringify(payload, null, 2) + '\n', {
     flag: 'w',
     mode: 0o600,
   });
-  await rename(tempPath, credentialPath);
+  await rename(tempPath, filePath);
   for (const account of accounts)
     account.passwordHash = await bcrypt.hash(account.password, 12);
   return accounts;
@@ -861,6 +877,7 @@ async function loadOrCreateCredentials() {
 export async function seedDemoData({
   connection = mongoose.connection,
   credentials = null,
+  credentialFilePath = credentialPath,
   anchorDate = new Date(),
 } = {}) {
   const databaseName = assertDemoSeedEnvironment();
@@ -872,7 +889,8 @@ export async function seedDemoData({
   return withDemoSeedLock(connection, async () => {
     const manifestStore = connection.db.collection(manifestCollection);
     const previous = await manifestStore.findOne({ _id: MANIFEST_KEY });
-    const accounts = credentials || (await loadOrCreateCredentials());
+    const accounts =
+      credentials || (await loadOrCreateCredentials(credentialFilePath));
     const anchor =
       previous?.anchorDate || anchorDate.toISOString().slice(0, 10);
     const { documents, manifest, attendanceDayCount } = await buildSeedPlan(
@@ -953,15 +971,28 @@ export async function seedDemoData({
       }
     }
     // Correct only the exact legacy fixture links; intentionally customized scopes remain untouched.
-    const legacyStudentLinks = {
-      'student.mia@example.com': [id('student:7'), studentIds.mia],
-      'student.eli@example.com': [id('student:10'), studentIds.eli],
-    };
-    for (const [email, [legacyStudentId, correctedStudentId]] of Object.entries(
-      legacyStudentLinks,
-    )) {
+    const legacyStudentLinks = [
+      {
+        email: 'student.mia@example.com',
+        legacyStudentId: stableId('student:7'),
+        correctedStudentId: stableId('student:5'),
+      },
+      {
+        email: 'student.eli@example.com',
+        legacyStudentId: stableId('student:10'),
+        correctedStudentId: stableId('student:7'),
+      },
+    ];
+    for (const {
+      email,
+      legacyStudentId,
+      correctedStudentId,
+    } of legacyStudentLinks) {
       await User.updateOne(
-        { _id: userId(email), studentIds: [legacyStudentId] },
+        {
+          _id: stableId(`user:${email}`),
+          studentIds: [legacyStudentId],
+        },
         { $set: { studentIds: [correctedStudentId] } },
       );
     }
@@ -972,9 +1003,10 @@ export async function seedDemoData({
     const persistedAccounts = await User.find({
       _id: { $in: documents.users.map(item => item._id) },
     })
-      .select('role active mustChangePassword')
+      .select('email role active mustChangePassword')
       .lean();
-    if (!credentials) await syncCredentialStates(persistedAccounts);
+    if (!credentials)
+      await syncCredentialStates(persistedAccounts, credentialFilePath);
     return {
       database: databaseName,
       accounts: documents.users.length,
@@ -996,7 +1028,7 @@ export async function seedDemoData({
       invoices: documents.invoices.length,
       payments: documents.payments.length,
       attendanceDays: attendanceDayCount,
-      credentialsFile: credentialPath,
+      credentialsFile: credentialFilePath,
     };
   });
 }

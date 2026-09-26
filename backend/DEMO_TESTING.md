@@ -24,7 +24,7 @@ $env:DEMO_MONGODB_URI = "mongodb://127.0.0.1:27017/school_platform_demo?replicaS
 npm run seed:dev
 ```
 
-The seeded database has 2 branches, 4 classes, 12 students, 15 user accounts, 84 attendance records (12×7 school days), 8 timetable periods, 4 notices, 5 assignments, 3 submissions, 2 lectures, 3 quiz attempts, 5 invoices and 3 payments. Seed output reports actual persisted active/disabled and teacher counts; normal reseed preserves any changed account state, so older demo databases may report different active counts.
+The seeded database has 2 branches, 4 classes, 12 students, 15 user accounts, 84 attendance records (12×7 school days), 8 timetable periods, 4 notices, 5 assignments, 3 submissions, 2 lectures, 3 quiz attempts, 5 invoices and 3 payments. A fresh seed has 14 active accounts, 1 disabled account, 3 active teachers and 2 accounts requiring a first password change. Seed output reports actual persisted counts; normal reseed preserves changed account state, so older demo databases may differ.
 
 On first successful seed, random passwords and account state are written to `backend/.demo-credentials.json`. It is Git-ignored. Treat it as a secret and share only with authorized testers. Passwords are never printed. Reruns reuse those passwords. No paid AI provider is called; the published lecture is explicitly labelled `TEST FIXTURE — not AI-generated` and another fictional transcript remains a draft ready for a real configured AI run.
 
@@ -41,7 +41,7 @@ Use the exact generated passwords in `.demo-credentials.json`.
 | Students    | `student.ava@example.com`, `student.noah@example.com`, `student.mia@example.com`, `student.eli@example.com` |
 | Parents     | `parent.lee@example.com`, `parent.park@example.com`, `parent.khan@example.com`                              |
 
-On a new demo database, all 3 teachers are active; `parent.khan@example.com` is disabled; `accountant.south@example.com` must change the initial password. The credential file is authoritative if those statuses have since been changed. Each student login maps to their matching student name. The Lee parent links Ava and Leo (siblings); Park links Ivy; Khan links Noah. Guardian names match those relationships.
+On a new demo database, all 3 teachers are active; `parent.khan@example.com` is disabled; `accountant.south@example.com` and `parent.park@example.com` must change their initial passwords. The credential file is authoritative if those statuses have since been changed. Each student login maps to its matching student name. The Lee parent links Ava and Leo (siblings); Park links Ivy; Khan links Noah. Linked students' guardian names match those parent accounts. A successful Park first login must change the password, sign in again, then load the linked-child list before any child-scoped records.
 
 Smoke checklist:
 
@@ -49,8 +49,8 @@ Smoke checklist:
 2. Sign in as each principal; north/south principals must see only their own branch's classes, students and invoices.
 3. Sign in as each teacher; verify class, subject, timetable and student roster scopes. Teacher Math must not open another teacher's class. The disabled account (new DB: Khan parent) must fail login.
 4. Sign in as all four students; each sees their own record only. Draft work and quiz answer keys must not be returned.
-5. Sign in as each parent; change the selected child and confirm attendance, timetable, assignments/submissions, lesson attempts, notices and fees switch to only that child. A linked-child ID belonging to another parent must be rejected.
-6. Check the South accountant's forced password-change screen and the two accountants' separate invoice scopes. Verify unpaid, partial, fully-paid, overdue and future examples and the CASH/BANK/CHEQUE receipts.
+5. Sign in as each parent. Park must change the temporary password before accessing school data. Switch the selected child and confirm attendance, timetable, assignments/submissions, lesson attempts, notices and fees switch to only that child. A linked-child ID belonging to another parent must be rejected.
+6. Check the South accountant's and Park parent's forced password-change screens and the two accountants' separate invoice scopes. Verify unpaid, partial, fully-paid, overdue and future examples and the CASH/BANK/CHEQUE receipts.
 7. Unauthenticated API requests should return 401; role-inappropriate requests should return 403. Revoked/expired API sessions clear mobile credentials and return to Login.
 8. For teacher AI workflow, configure `LLM_API_KEY` and `LLM_MODEL` only in a private development environment. Without them, Generate/AI-review actions show the server's explicit configuration error. Review suggested marks and submit a separate final teacher grade.
 

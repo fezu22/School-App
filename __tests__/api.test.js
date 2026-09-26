@@ -53,6 +53,25 @@ describe('authenticated API client', () => {
     );
   });
 
+  test('allows auth and branding requests needed before a parent selects a child', async () => {
+    setChildSelectionRequired(true);
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(200, { ok: true }));
+    for (const [path, method] of [
+      ['/auth/login', 'POST'],
+      ['/auth/me', 'GET'],
+      ['/auth/logout', 'POST'],
+      ['/auth/password', 'POST'],
+      ['/branding', 'GET'],
+    ]) {
+      await expect(api(path, method, {})).resolves.toEqual({ ok: true });
+    }
+    expect(global.fetch).toHaveBeenCalledTimes(5);
+    await expect(api('/dashboard')).rejects.toMatchObject({
+      code: 'NO_CHILD_SELECTED',
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(5);
+  });
+
   test('discards a response started for the previous selected child', async () => {
     setChildSelectionRequired(true);
     setSelectedChildId('child-ava');
