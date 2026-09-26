@@ -138,7 +138,7 @@ test('advance can be used once, late fees apply after grace, and approved schola
   assert.equal(r.status, 201, r.text);
   r = await call(parent, 'get', '/invoices');
   assert.equal(r.body.items.find(item => item._id === advanceUse._id).outstandingBalance, 1500);
-  assert.equal(r.body.items.find(item => item._id === advanceUse._id).advanceCredit, 2500);
+  assert.equal(r.body.items.find(item => item._id === advanceUse._id).advanceCredit, 1500);
   const feePlan = await call(owner, 'post', '/fee-plans', { branchId: branch._id, name: 'Late fee plan', category: 'MONTHLY', frequency: 'MONTHLY', amount: 1000, lateFeeType: 'FIXED', lateFeeAmount: 100, lateFeeGraceDays: 0, studentIds: [child._id] });
   r = await call(owner, 'post', `/fee-plans/${feePlan.body.item._id}/generate`, { periodKey: '2020-01', dueDate: '2020-01-01' });
   const late = (await call(parent, 'get', '/invoices')).body.items.find(item => item.periodKey === '2020-01');
@@ -206,4 +206,41 @@ test('bank reconciliation matches receipts without verifying payments, protects 
   assert.equal((await call(cashier, 'post', `/bank-reconciliation/${r.body.items[0]._id}/review`, { decision: 'ACCEPT_UNMATCHED', discrepancyReason: 'Awaiting bank advice' })).status, 403);
   r = await call(owner, 'post', `/bank-reconciliation/${r.body.items[0]._id}/review`, { decision: 'ACCEPT_UNMATCHED', discrepancyReason: 'Awaiting bank advice' });
   assert.equal(r.status, 200, r.text); assert.equal(r.body.item.status, 'APPROVED');
+});
+test('concurrent advance use and multi-invoice allocation serialize without overspending credit or dues', async () => {
+  const baselineAdvance = (await call(parent, 'get', '/invoices')).body.items.find(item => String(item.studentId?._id || item.studentId) === String(child._id))?.advanceCredit || 0;
+  let r = await call(owner, 'post', '/invoices', { studentId: child._id, title: 'Concurrency advance source', amount: 1000, dueDate: '2027-01-01' });
+  const source = r.body.item;
+  r = await call(cashier, 'post', `/invoices/${source._id}/payments`, { amount: 1000, method: 'BANK', requestKey: 'finance-concurrent-advance-source', allocations: [] });
+  assert.equal(r.status, 201, r.text);
+  r = await call(owner, 'post', '/invoices', { studentId: child._id, title: 'Concurrency advance target', amount: 1500, dueDate: '2027-01-01' });
+  const target = r.body.item;
+  const advanceResults = await Promise.all([1, 2, 3].map(n => call(cashier, 'post', `/invoices/${target._id}/payments`, { amount: 1, advanceUsed: 500, method: 'BANK', requestKey: `finance-concurrent-advance-${n}`, allocations: [{ invoiceId: target._id, dueKey: 'default', amount: 501 }] })));
+  assert.deepEqual(advanceResults.map(result => result.status).sort(), [201, 201, 400]);
+  const invoices = (await call(parent, 'get', '/invoices')).body.items;
+  assert.equal(invoices.find(item => item._id === target._id).paid, 1002);
+  assert.equal(invoices.find(item => item._id === target._id).advanceCredit, baselineAdvance);
+  r = await call(owner, 'post', '/invoices', { studentId: child._id, title: 'Allocation A', amount: 1000, dueDate: '2027-02-01' });
+  const allocationA = r.body.item;
+  r = await call(owner, 'post', '/invoices', { studentId: child._id, title: 'Allocation B', amount: 1000, dueDate: '2027-02-01' });
+  const allocationB = r.body.item;
+  const allocationResults = await Promise.all([1, 2].map(n => call(cashier, 'post', `/invoices/${allocationA._id}/payments`, { amount: 1000, method: 'BANK', requestKey: `finance-concurrent-allocation-${n}`, allocations: [{ invoiceId: allocationB._id, dueKey: 'default', amount: 1000 }] })));
+  assert.deepEqual(allocationResults.map(result => result.status).sort(), [201, 400]);
+  const afterAllocation = (await call(parent, 'get', '/invoices')).body.items.find(item => item._id === allocationB._id);
+  assert.equal(afterAllocation.paid, 1000);
+  assert.equal(afterAllocation.outstandingBalance, 0);
+});
+test('concurrent cash entry and closing allow only one state transition', async () => {
+  const date = '2099-01-01';
+  const entry = call(cashier, 'post', '/invoices/cash-entries', { branchId: branch._id, kind: 'EXPENSE', amount: 100, description: 'Concurrent expense', requestKey: 'finance-concurrent-cash-entry', date });
+  const close = call(cashier, 'post', '/invoices/cash-closings', { branchId: branch._id, countedAmount: 0, varianceExplanation: 'Concurrent transition test', date });
+  const results = await Promise.all([entry, close]);
+  const statuses = results.map(result => result.status).sort();
+  assert.ok(JSON.stringify(statuses) === JSON.stringify([201, 409]) || JSON.stringify(statuses) === JSON.stringify([201, 201]));
+  if (statuses[1] === 201) {
+    const closing = results.find(result => result.body?.item?.expectedAmount !== undefined)?.body.item;
+    assert.ok(closing);
+    assert.equal(closing.expectedAmount, -100);
+  }
+  assert.equal((await call(cashier, 'post', '/invoices/cash-entries', { branchId: branch._id, kind: 'EXPENSE', amount: 100, description: 'After concurrent close', requestKey: 'finance-concurrent-cash-after', date })).status, 409);
 });

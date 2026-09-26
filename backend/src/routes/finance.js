@@ -60,7 +60,7 @@ async function ledger(invoice, session) {
   })).map(due => ({ ...due, balance: Math.max(0, due.amount - due.paid) }));
   const studentInvoices = await Invoice.find({ studentId: invoice.studentId }).select('_id').session(session || null);
   const studentInvoiceIds = studentInvoices.map(item => item._id);
-  const studentPayments = await Payment.find({ invoiceId: { $in: studentInvoiceIds } }).select('advanceAmount').session(session || null);
+  const studentPayments = await Payment.find({ invoiceId: { $in: studentInvoiceIds } }).select('advanceAmount advanceUsed').session(session || null);
   const advanceCredit = studentPayments.reduce((n, p) => n + (p.advanceAmount || 0) - (p.advanceUsed || 0), 0);
   return {
     payments, refunds, grossPaid, refunded, discountAmount, lateFee, netCharge, paid, dues,
@@ -68,12 +68,13 @@ async function ledger(invoice, session) {
     credit: Math.max(0, paid - netCharge), advanceCredit,
   };
 }
-async function writeInvoice(invoice, operation) {
+async function writeInvoice(invoice, operation, extraInvoiceIds = []) {
   const session = await Invoice.startSession();
   try {
     return await session.withTransaction(async () => {
       // A write to the same invoice serializes competing payment, discount and refund operations.
-      await Invoice.updateOne({ _id: invoice._id }, { $inc: { paymentRevision: 1 } }, { session });
+      const ids = [...new Set([String(invoice._id), ...extraInvoiceIds.map(String)])];
+      await Invoice.updateMany({ _id: { $in: ids } }, { $inc: { paymentRevision: 1 } }, { session });
       const current = await Invoice.findById(invoice._id).session(session);
       return operation(current, session);
     });
@@ -105,13 +106,18 @@ router.post('/cash-entries', manager, route(async (req, res) => {
   if (data.kind !== 'OPENING' && data.amount < 1) throw problem(400, 'Cash entry amount must be positive');
   branchAllowed(req.user, data.branchId);
   if (!(await Branch.exists({ _id: data.branchId }))) throw problem(404, 'Branch not found');
-  if (await CashClosing.exists({ branchId: data.branchId, date: data.date })) throw problem(409, 'Cash day is already closed');
-  if (data.kind === 'OPENING' && await CashEntry.exists({ branchId: data.branchId, date: data.date, kind: 'OPENING' })) throw problem(409, 'Opening cash already recorded');
-  const ref = randomUUID();
-  const [auditItem, item] = await Promise.all([
-    Audit.create({ immutableRef: ref, actor: req.user._id, action: `CASH_${data.kind}`, entity: 'CashEntry', entityId: ref, branchId: data.branchId }),
-    CashEntry.create({ ...data, cashierId: req.user._id, occurredAt: new Date(), auditRef: ref }),
-  ]);
+  let item, auditItem;
+  const session = await Invoice.startSession();
+  try {
+    await session.withTransaction(async () => {
+      await Branch.updateOne({ _id: data.branchId }, { $inc: { cashRevision: 1 } }, { session });
+      if (await CashClosing.exists({ branchId: data.branchId, date: data.date }).session(session)) throw problem(409, 'Cash day is already closed');
+      if (data.kind === 'OPENING' && await CashEntry.exists({ branchId: data.branchId, date: data.date, kind: 'OPENING' }).session(session)) throw problem(409, 'Opening cash already recorded');
+      const ref = randomUUID();
+      [auditItem] = await Audit.create([{ immutableRef: ref, actor: req.user._id, action: `CASH_${data.kind}`, entity: 'CashEntry', entityId: ref, branchId: data.branchId }], { session });
+      [item] = await CashEntry.create([{ ...data, cashierId: req.user._id, occurredAt: new Date(), auditRef: ref }], { session });
+    });
+  } finally { await session.endSession(); }
   res.status(201).json({ item, auditRef: auditItem.immutableRef });
 }));
 router.post('/cash-closings', manager, route(async (req, res) => {
@@ -154,7 +160,6 @@ router.post('/cash-closings', manager, route(async (req, res) => {
       await CashEntry.updateMany({ branchId: data.branchId, date: dateValue }, { $set: { closingId: item._id } }, { session });
     });
   } finally { await session.endSession(); }
-  await audit(req.user, 'CASH_CLOSE', 'CashClosing', item._id, data.branchId);
   res.status(201).json({ item });
 }));
 router.get('/', route(async (req, res) => {
@@ -263,10 +268,11 @@ router.post('/:id/payments', manager, route(async (req, res) => {
       throw problem(409, 'Payment request conflict');
     return res.json({ item: prior });
   }
+  const studentInvoiceIds = (await Invoice.find({ studentId: invoice.studentId }).select('_id')).map(item => item._id);
+  const allocationInvoiceIds = data.allocations?.map(item => item.invoiceId) || [];
   const item = await writeInvoice(invoice, async (current, session) => {
     const state = await ledger(current, session);
-    const studentInvoices = await Invoice.find({ studentId: current.studentId }).select('_id').session(session);
-    const existingPayments = await Payment.find({ invoiceId: { $in: studentInvoices.map(item => item._id) } }).select('advanceAmount advanceUsed').session(session);
+    const existingPayments = await Payment.find({ invoiceId: { $in: studentInvoiceIds } }).select('advanceAmount advanceUsed').session(session);
     const availableAdvance = existingPayments.reduce((n, p) => n + (p.advanceAmount || 0) - (p.advanceUsed || 0), 0);
     if (data.advanceUsed > availableAdvance) throw problem(400, 'Advance credit exceeds available student credit');
     const allocations = data.allocations === undefined ? [{ invoiceId: current._id, dueKey: 'default', amount: data.amount + data.advanceUsed }] : data.allocations;
@@ -286,7 +292,7 @@ router.post('/:id/payments', manager, route(async (req, res) => {
     if (data.method === 'CASH') await lockCashBranch(current.branchId, session);
     const [payment] = await Payment.create([{ ...data, allocations, advanceAmount: data.amount + data.advanceUsed - allocated, invoiceId: current._id, recordedBy: req.user._id }], { session });
     return payment;
-  });
+  }, [...studentInvoiceIds, ...allocationInvoiceIds]);
   await audit(req.user, 'PAY', 'Invoice', invoice._id, invoice.branchId);
   res.status(201).json({ item });
 }));

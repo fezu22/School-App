@@ -1,5 +1,7 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, Linking } from 'react-native';
+import { Alert } from 'react-native';
+import { generatePDF } from 'react-native-html-to-pdf';
+import Share from 'react-native-share';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -80,8 +82,9 @@ export default function InvoiceDetailScreen({ route }) {
     if (!Number.isInteger(value) || value < 1 || value > 100 || !policyReason.trim()) return setError('Enter sibling discount percent and reason');
     confirm('Approve sibling discount?', `${value}% sibling discount will reduce this invoice.`, async () => { await api(`/invoices/${id}/sibling-discount`, 'PUT', { percent: value, reason: policyReason.trim() }); setSiblingPercent(''); });
   };
-  const openVoucher = async () => { try { const { document } = await api(`/invoices/${id}/voucher`); await Linking.openURL(`data:text/html;charset=utf-8,${encodeURIComponent(printableHtml(document))}`); } catch (e) { setError(e.message); } };
-  const openReceipt = async paymentId => { try { const { document } = await api(`/invoices/${id}/payments/${paymentId}/receipt`); await Linking.openURL(`data:text/html;charset=utf-8,${encodeURIComponent(printableHtml(document))}`); } catch (e) { setError(e.message); } };
+  const printDocument = async (document, fileName) => { const result = await generatePDF({ html: printableHtml(document), fileName, directory: 'Documents' }); const filePath = result.filePath || result.fileURL; if (!filePath) throw Error('PDF generation did not return a file'); await Share.open({ url: filePath.startsWith('file://') ? filePath : `file://${filePath}`, type: 'application/pdf', title: fileName, failOnCancel: false }); };
+  const openVoucher = async () => { try { const { document } = await api(`/invoices/${id}/voucher`); await printDocument(document, `fee-voucher-${id}`); } catch (e) { if (!/cancel/i.test(e.message || '')) setError(e.message); } };
+  const openReceipt = async paymentId => { try { const { document } = await api(`/invoices/${id}/payments/${paymentId}/receipt`); await printDocument(document, `fee-receipt-${paymentId}`); } catch (e) { if (!/cancel/i.test(e.message || '')) setError(e.message); } };
   return <Page>
     <Title>{invoice.title}</Title><Muted>{invoice.studentId?.name} · Due {invoice.dueDate}</Muted>
     <ErrorText message={error} />
