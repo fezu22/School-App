@@ -9,6 +9,7 @@ import { router as academicsRouter } from './routes/academics.js';
 import { router as learningRouter } from './routes/learning.js';
 import { router as financeRouter } from './routes/finance.js';
 import { router as feePlansRouter } from './routes/feePlans.js';
+import { router as bankReconciliationRouter } from './routes/bankReconciliation.js';
 import {
   auth,
   selectChild,
@@ -59,6 +60,7 @@ app.use('/', academicsRouter);
 app.use('/assignments', learningRouter);
 app.use('/invoices', financeRouter);
 app.use('/fee-plans', feePlansRouter);
+app.use('/bank-reconciliation', bankReconciliationRouter);
 app.use((_req, res) => res.status(404).json({ error: 'Endpoint not found' }));
 app.use((error, _req, res, _next) => {
   if (error instanceof ZodError)

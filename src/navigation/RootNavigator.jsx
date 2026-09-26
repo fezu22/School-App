@@ -21,6 +21,7 @@ import ModuleHubScreen from '../screens/ModuleHubScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import CashClosingScreen from '../screens/CashClosingScreen';
 import FeePlansScreen from '../screens/FeePlansScreen';
+import BankReconciliationScreen from '../screens/BankReconciliationScreen';
 import { MODULES, ROLES_BY_SCREEN } from './modules';
 
 const Stack = createNativeStackNavigator();
@@ -113,6 +114,7 @@ const moduleScreens = {
   Timetable: [RecordsScreen, 'Timetable'],
   Invoices: [RecordsScreen, 'Invoices'],
   FeePlans: [FeePlansScreen, 'FeePlans'],
+  BankReconciliation: [BankReconciliationScreen, 'BankReconciliation'],
   Audit: [RecordsScreen, 'Audit'],
 };
 const guardedModuleScreens = Object.fromEntries(

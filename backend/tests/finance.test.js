@@ -186,3 +186,24 @@ test('cash workflow records opening, expenses, transfers, approval and handover 
   assert.equal(r.status, 200, r.text); assert.ok(r.body.item.handoverAuditRef);
   assert.equal((await call(owner, 'post', `/invoices/cash-closings/${closingId}/handover`, { recipientId: recipient._id, note: 'Duplicate handover' })).status, 409);
 });
+test('bank reconciliation matches receipts without verifying payments, protects imports, branches and reviews', async () => {
+  let r = await call(owner, 'post', '/invoices', { studentId: child._id, title: 'Bank reconciliation fee', amount: 4500, dueDate: '2026-12-01' });
+  const invoiceId = r.body.item._id;
+  r = await call(cashier, 'post', `/invoices/${invoiceId}/payments`, { amount: 4500, method: 'BANK', reference: 'BANK-REF-001', requestKey: 'finance-bank-receipt-1' });
+  assert.equal(r.status, 201, r.text);
+  const importBody = { branchId: branch._id, rows: [{ rowKey: 'statement-001', bankReference: 'BANK-REF-001', amount: 4500, transactionDate: '2026-12-01', description: 'Bank receipt' }] };
+  r = await call(cashier, 'post', '/bank-reconciliation/import', importBody);
+  assert.equal(r.status, 201, r.text); assert.equal(r.body.matched, 1); assert.equal(r.body.verified, false); assert.ok(r.body.items[0].auditRef);
+  const reconciliationId = r.body.items[0]._id;
+  assert.equal((await call(cashier, 'post', '/bank-reconciliation/import', importBody)).status, 409);
+  assert.equal((await call(other, 'post', '/bank-reconciliation/import', { branchId: branch._id, rows: [{ rowKey: 'wrong-branch-row', bankReference: 'BANK-REF-001', amount: 4500, transactionDate: '2026-12-01' }] })).status, 403);
+  assert.equal((await call(cashier, 'post', `/bank-reconciliation/${reconciliationId}/review`, { decision: 'APPROVE_MATCH' })).status, 403);
+  r = await call(owner, 'post', `/bank-reconciliation/${reconciliationId}/review`, { decision: 'APPROVE_MATCH' });
+  assert.equal(r.status, 200, r.text); assert.equal(r.body.item.status, 'APPROVED'); assert.equal(r.body.verifiedPayment, false); assert.ok(r.body.item.reviewAuditRef);
+  assert.equal((await call(owner, 'post', `/bank-reconciliation/${reconciliationId}/review`, { decision: 'APPROVE_MATCH' })).status, 409);
+  r = await call(cashier, 'post', '/bank-reconciliation/import', { branchId: branch._id, rows: [{ rowKey: 'statement-unmatched', bankReference: 'BANK-UNKNOWN', amount: 999, transactionDate: '2026-12-01' }] });
+  assert.equal(r.body.unmatched, 1);
+  assert.equal((await call(cashier, 'post', `/bank-reconciliation/${r.body.items[0]._id}/review`, { decision: 'ACCEPT_UNMATCHED', discrepancyReason: 'Awaiting bank advice' })).status, 403);
+  r = await call(owner, 'post', `/bank-reconciliation/${r.body.items[0]._id}/review`, { decision: 'ACCEPT_UNMATCHED', discrepancyReason: 'Awaiting bank advice' });
+  assert.equal(r.status, 200, r.text); assert.equal(r.body.item.status, 'APPROVED');
+});

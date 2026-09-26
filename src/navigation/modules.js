@@ -97,7 +97,11 @@ export const MODULES = [
   },
   {
     title: 'Cash closing', screen: 'CashClosing', group: 'Records',
-    roles: ['SUPER_ADMIN', 'ACCOUNTANT'],
+    roles: ['SUPER_ADMIN', 'ACCOUNTANT', 'PRINCIPAL'],
+  },
+  {
+    title: 'Bank reconciliation', screen: 'BankReconciliation', group: 'Records',
+    roles: ['SUPER_ADMIN', 'ACCOUNTANT', 'PRINCIPAL'],
   },
   {
     title: 'Users & permissions',
