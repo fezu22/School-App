@@ -19,6 +19,7 @@ export default function InvoiceDetailScreen({ route }) {
   const [invoice, setInvoice] = useState(route.params.invoice);
   const [busy, setBusy] = useState(false), [loading, setLoading] = useState(false), [error, setError] = useState('');
   const [amount, setAmount] = useState(''), [method, setMethod] = useState('CASH'), [reference, setReference] = useState('');
+  const [allocationDueKey, setAllocationDueKey] = useState('default');
   const [requestKey, setRequestKey] = useState(key);
   const [discount, setDiscount] = useState(String((invoice.discountAmount || 0) / 100)), [discountReason, setDiscountReason] = useState(invoice.discountReason || '');
   const [refundPaymentId, setRefundPaymentId] = useState(''), [refundAmount, setRefundAmount] = useState(''), [refundMethod, setRefundMethod] = useState('BANK'), [refundReason, setRefundReason] = useState(''), [refundReference, setRefundReference] = useState('');
@@ -48,7 +49,7 @@ export default function InvoiceDetailScreen({ route }) {
   const pay = () => {
     let value; try { value = toPaisa(amount); } catch (e) { return setError(e.message); }
     confirm('Record payment?', `${money(value)} · ${method}`, async () => {
-      await api(`/invoices/${id}/payments`, 'POST', { amount: value, method, reference, requestKey });
+      await api(`/invoices/${id}/payments`, 'POST', { amount: value, method, reference, requestKey, allocations: [{ invoiceId: id, dueKey: allocationDueKey, amount: value }] });
       setRequestKey(key()); setAmount(''); setReference('');
     });
   };
@@ -74,7 +75,7 @@ export default function InvoiceDetailScreen({ route }) {
     <Title>{invoice.title}</Title><Muted>{invoice.studentId?.name} · Due {invoice.dueDate}</Muted>
     <ErrorText message={error} />
     {loading && <Busy />}
-    <Card><Title>{money(invoice.balance)} due</Title>
+    <Card><Title>{money(invoice.balance)} due</Title><Muted>Outstanding balance · {money(invoice.outstandingBalance ?? invoice.balance)} · Advance credit · {money(invoice.advanceCredit)}</Muted>
       <Muted>Original {money(invoice.amount)} · Concession {money(invoice.discountAmount)}{'\n'}Net charge {money(invoice.netCharge ?? invoice.amount - (invoice.discountAmount || 0))} · Net paid {money(invoice.paid)}{'\n'}Credit available for refund {money(invoice.credit)}</Muted>
       {!!invoice.discountReason && <Muted>Concession reason: {invoice.discountReason}</Muted>}
     </Card>
@@ -86,6 +87,7 @@ export default function InvoiceDetailScreen({ route }) {
     </Card>}
     {canPay && invoice.balance > 0 && <Card><Title>Record payment</Title>
       <Field label="Amount (PKR)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
+      <Choice label="Allocate to due" value={allocationDueKey} onChange={setAllocationDueKey} options={(invoice.dues || [{ key: 'default', title: invoice.title, balance: invoice.balance }]).filter(due => due.balance > 0).map(due => ({ value: due.key, label: `${due.title} · ${money(due.balance)}` }))} />
       <Choice label="Method" value={method} onChange={setMethod} options={methods} />
       <Field label="Reference / cheque number" value={reference} onChangeText={setReference} />
       <Button title="Record payment" onPress={pay} busy={busy} />

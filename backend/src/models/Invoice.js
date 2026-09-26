@@ -11,4 +11,5 @@ export const Invoice = model("Invoice", {
   discountReason: { type: String, default: '' },
   paymentRevision: { type: Number, default: 0 },
   dueDate: String,
+  dues: [{ key: String, title: String, amount: Number, dueDate: String }],
 }, [[{ studentId: 1, planId: 1, periodKey: 1 }, { unique: true, partialFilterExpression: { planId: { $exists: true }, periodKey: { $exists: true } } }]]);

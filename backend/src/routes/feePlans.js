@@ -47,6 +47,7 @@ router.post('/:id/generate', manager, route(async (req, res) => {
       studentId: student._id, branchId: plan.branchId, planId: plan._id,
       periodKey: data.periodKey, title: `${plan.name} - ${data.periodKey}`,
       category: plan.category, amount: plan.amount, dueDate: data.dueDate,
+      dues: [{ key: 'default', title: plan.name, amount: plan.amount, dueDate: data.dueDate }],
     }));
   }
   await audit(req.user, 'GENERATE', 'FeePlan', plan._id, plan.branchId);

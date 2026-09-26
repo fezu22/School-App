@@ -29,16 +29,30 @@ async function accessibleInvoice(req, invoiceId) {
   return item;
 }
 async function ledger(invoice, session) {
-  const payments = await Payment.find({ invoiceId: invoice._id }).session(session || null).sort({ createdAt: 1 });
+  const payments = await Payment.find({ $or: [{ invoiceId: invoice._id }, { 'allocations.invoiceId': invoice._id }] }).session(session || null).sort({ createdAt: 1 });
   const refunds = await Refund.find({ invoiceId: invoice._id }).session(session || null).sort({ createdAt: 1 });
-  const grossPaid = payments.reduce((n, p) => n + p.amount, 0);
+  const invoiceAmount = payment => payment.allocations?.length
+    ? payment.allocations.filter(a => String(a.invoiceId) === String(invoice._id)).reduce((n, a) => n + a.amount, 0)
+    : String(payment.invoiceId) === String(invoice._id) ? payment.amount : 0;
+  const grossPaid = payments.reduce((n, p) => n + invoiceAmount(p), 0);
   const refunded = refunds.reduce((n, r) => n + r.amount, 0);
   const discountAmount = invoice.discountAmount || 0;
   const netCharge = invoice.amount - discountAmount;
   const paid = grossPaid - refunded;
+  const dues = (invoice.dues?.length ? invoice.dues : [{ key: 'default', title: invoice.title, amount: invoice.amount, dueDate: invoice.dueDate }]).map(due => ({
+    ...(due.toObject?.() || due),
+    paid: Math.max(0, payments.reduce((n, p) => n + (p.allocations?.length
+      ? p.allocations.filter(a => String(a.invoiceId) === String(invoice._id) && a.dueKey === due.key).reduce((x, a) => x + a.amount, 0)
+      : String(p.invoiceId) === String(invoice._id) && due.key === 'default' ? p.amount : 0), 0) - (due.key === 'default' ? refunded : 0)),
+  })).map(due => ({ ...due, balance: Math.max(0, due.amount - due.paid) }));
+  const studentInvoices = await Invoice.find({ studentId: invoice.studentId }).select('_id').session(session || null);
+  const studentInvoiceIds = studentInvoices.map(item => item._id);
+  const studentPayments = await Payment.find({ invoiceId: { $in: studentInvoiceIds } }).select('advanceAmount').session(session || null);
+  const advanceCredit = studentPayments.reduce((n, p) => n + (p.advanceAmount || 0), 0);
   return {
-    payments, refunds, grossPaid, refunded, discountAmount, netCharge, paid,
-    balance: Math.max(0, netCharge - paid), credit: Math.max(0, paid - netCharge),
+    payments, refunds, grossPaid, refunded, discountAmount, netCharge, paid, dues,
+    balance: Math.max(0, netCharge - paid), outstandingBalance: Math.max(0, netCharge - paid),
+    credit: Math.max(0, paid - netCharge), advanceCredit,
   };
 }
 async function writeInvoice(invoice, operation) {
@@ -113,7 +127,7 @@ router.get('/:id/payments/:paymentId/receipt', route(async (req, res) => {
 router.post('/', manager, route(async (req, res) => {
   const data = z.object({ studentId: id, title: text, amount: positivePaisa, dueDate: date }).parse(req.body);
   const student = await getStudent(req.user, data.studentId);
-  const item = await Invoice.create({ ...data, branchId: student.branchId });
+  const item = await Invoice.create({ ...data, branchId: student.branchId, dues: [{ key: 'default', title: data.title, amount: data.amount, dueDate: data.dueDate }] });
   await audit(req.user, 'CREATE', 'Invoice', item._id, item.branchId);
   res.status(201).json({ item });
 }));
@@ -132,19 +146,37 @@ router.put('/:id/concession', allow('SUPER_ADMIN'), route(async (req, res) => {
   res.json({ item });
 }));
 router.post('/:id/payments', manager, route(async (req, res) => {
-  const data = z.object({ amount: positivePaisa, method, reference: z.string().max(100).default(''), requestKey }).parse(req.body);
+  const data = z.object({
+    amount: positivePaisa, method, reference: z.string().max(100).default(''), requestKey,
+    allocations: z.array(z.object({ invoiceId: id, dueKey: z.string().min(1).max(80), amount: positivePaisa })).default([]),
+  }).parse(req.body);
   const invoice = await accessibleInvoice(req, req.params.id);
   const prior = await Payment.findOne({ requestKey: data.requestKey });
   if (prior) {
-    if (String(prior.invoiceId) !== String(invoice._id) || prior.amount !== data.amount || prior.method !== data.method || prior.reference !== data.reference)
+    const priorAllocations = prior.allocations?.length ? prior.allocations.map(item => ({ invoiceId: String(item.invoiceId), dueKey: item.dueKey, amount: item.amount })) : [{ invoiceId: String(prior.invoiceId), dueKey: 'default', amount: prior.amount }];
+    const requestedAllocations = data.allocations.length ? data.allocations.map(item => ({ invoiceId: String(item.invoiceId), dueKey: item.dueKey, amount: item.amount })) : [{ invoiceId: String(invoice._id), dueKey: 'default', amount: data.amount }];
+    if (String(prior.invoiceId) !== String(invoice._id) || prior.amount !== data.amount || prior.method !== data.method || prior.reference !== data.reference || JSON.stringify(priorAllocations) !== JSON.stringify(requestedAllocations))
       throw problem(409, 'Payment request conflict');
     return res.json({ item: prior });
   }
   const item = await writeInvoice(invoice, async (current, session) => {
     const state = await ledger(current, session);
-    if (data.amount > state.balance) throw problem(400, 'Payment exceeds balance');
+    const allocations = data.allocations.length ? data.allocations : [{ invoiceId: current._id, dueKey: 'default', amount: data.amount }];
+    const allocated = allocations.reduce((n, allocation) => n + allocation.amount, 0);
+    if (allocated > data.amount) throw problem(400, 'Allocations exceed payment amount');
+    const seen = new Set();
+    for (const allocation of allocations) {
+      const target = await Invoice.findById(allocation.invoiceId).session(session);
+      if (!target || String(target.studentId) !== String(current.studentId) || String(target.branchId) !== String(current.branchId)) throw problem(403, 'Payment allocation is outside the student branch');
+      const targetState = await ledger(target, session);
+      const due = targetState.dues.find(item => item.key === allocation.dueKey);
+      if (!due) throw problem(400, 'Payment allocation references an unknown due');
+      if (seen.has(`${target._id}:${due.key}`)) throw problem(400, 'Duplicate payment allocation');
+      seen.add(`${target._id}:${due.key}`);
+      if (allocation.amount > due.balance) throw problem(400, 'Payment allocation exceeds due balance');
+    }
     if (data.method === 'CASH') await lockCashBranch(current.branchId, session);
-    const [payment] = await Payment.create([{ ...data, invoiceId: current._id, recordedBy: req.user._id }], { session });
+    const [payment] = await Payment.create([{ ...data, allocations, advanceAmount: data.amount - allocated, invoiceId: current._id, recordedBy: req.user._id }], { session });
     return payment;
   });
   await audit(req.user, 'PAY', 'Invoice', invoice._id, invoice.branchId);

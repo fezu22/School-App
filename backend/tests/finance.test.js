@@ -101,3 +101,28 @@ test('fee plans generate period invoices once and expose printable voucher and r
   assert.equal(r.status, 200, r.text);
   assert.equal(r.body.document.kind, 'RECEIPT');
 });
+test('payments allocate to named dues, retain advance credit, isolate branches, and retry idempotently', async () => {
+  let r = await call(owner, 'post', '/invoices', { studentId: child._id, title: 'Term one', amount: 5000, dueDate: '2026-11-01' });
+  assert.equal(r.status, 201, r.text);
+  const first = r.body.item;
+  r = await call(owner, 'post', '/invoices', { studentId: child._id, title: 'Transport', amount: 3000, dueDate: '2026-11-01' });
+  assert.equal(r.status, 201, r.text);
+  const second = r.body.item;
+  const allocations = [
+    { invoiceId: first._id, dueKey: 'default', amount: 5000 },
+    { invoiceId: second._id, dueKey: 'default', amount: 2000 },
+  ];
+  r = await call(cashier, 'post', `/invoices/${first._id}/payments`, { amount: 8000, method: 'BANK', requestKey: 'finance-allocation-0001', allocations });
+  assert.equal(r.status, 201, r.text);
+  assert.equal(r.body.item.advanceAmount, 1000);
+  r = await call(cashier, 'post', `/invoices/${first._id}/payments`, { amount: 8000, method: 'BANK', requestKey: 'finance-allocation-0001', allocations });
+  assert.equal(r.status, 200, r.text);
+  r = await call(parent, 'get', '/invoices');
+  const firstView = r.body.items.find(item => item._id === first._id);
+  const secondView = r.body.items.find(item => item._id === second._id);
+  assert.equal(firstView.outstandingBalance, 0);
+  assert.equal(secondView.outstandingBalance, 1000);
+  assert.equal(firstView.advanceCredit, 1000);
+  const foreign = await call(owner, 'post', '/invoices', { studentId: foreignChild._id, title: 'Foreign', amount: 1000, dueDate: '2026-11-01' });
+  assert.equal((await call(cashier, 'post', `/invoices/${first._id}/payments`, { amount: 1, method: 'BANK', requestKey: 'finance-allocation-foreign', allocations: [{ invoiceId: foreign.body.item._id, dueKey: 'default', amount: 1 }] })).status, 403);
+});
