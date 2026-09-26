@@ -16,7 +16,7 @@ async function login(email) {
 }
 before(async () => {
   process.env.JWT_SECRET = 'finance-test-secret-at-least-32-characters';
-  mongo = await MongoMemoryReplSet.create({ binary: { version: '7.0.14' }, replSet: { count: 1, args: ['--nounixsocket'] } });
+  mongo = await MongoMemoryReplSet.create({ binary: { version: '7.0.14' }, replSet: { count: 1 } });
   await mongoose.connect(mongo.getUri('finance_test'));
   await Promise.all(Object.values(mongoose.models).map(model => model.init()));
   [branch, foreignBranch] = await Branch.create([{ name: 'North' }, { name: 'South' }]);
