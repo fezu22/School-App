@@ -10,4 +10,7 @@ export const FeePlan = model('FeePlan', {
   classIds: [{ type: oid.type, ref: 'SchoolClass' }],
   studentIds: [{ type: oid.type, ref: 'Student' }],
   active: { type: Boolean, default: true },
+  lateFeeType: { type: String, enum: ['NONE', 'FIXED', 'PERCENTAGE'], default: 'NONE' },
+  lateFeeAmount: { type: Number, default: 0 },
+  lateFeeGraceDays: { type: Number, min: 0, max: 90, default: 0 },
 }, [[{ branchId: 1, name: 1 }, {}]]);

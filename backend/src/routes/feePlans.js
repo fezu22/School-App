@@ -21,6 +21,9 @@ router.post('/', manager, route(async (req, res) => {
     branchId: id, name: text, category: text, frequency, amount,
     dueDay: z.number().int().min(1).max(28).optional(),
     classIds: z.array(id).default([]), studentIds: z.array(id).default([]),
+    lateFeeType: z.enum(['NONE', 'FIXED', 'PERCENTAGE']).default('NONE'),
+    lateFeeAmount: z.number().int().min(0).max(100000000).default(0),
+    lateFeeGraceDays: z.number().int().min(0).max(90).default(0),
   }).parse(req.body);
   branchAllowed(req.user, data.branchId);
   if (!(await Branch.exists({ _id: data.branchId }))) throw problem(404, 'Branch not found');
@@ -48,6 +51,7 @@ router.post('/:id/generate', manager, route(async (req, res) => {
       periodKey: data.periodKey, title: `${plan.name} - ${data.periodKey}`,
       category: plan.category, amount: plan.amount, dueDate: data.dueDate,
       dues: [{ key: 'default', title: plan.name, amount: plan.amount, dueDate: data.dueDate }],
+      lateFeeType: plan.lateFeeType, lateFeeAmount: plan.lateFeeAmount, lateFeeGraceDays: plan.lateFeeGraceDays,
     }));
   }
   await audit(req.user, 'GENERATE', 'FeePlan', plan._id, plan.branchId);

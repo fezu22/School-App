@@ -22,6 +22,7 @@ export default function InvoiceDetailScreen({ route }) {
   const [allocationDueKey, setAllocationDueKey] = useState('default');
   const [requestKey, setRequestKey] = useState(key);
   const [discount, setDiscount] = useState(String((invoice.discountAmount || 0) / 100)), [discountReason, setDiscountReason] = useState(invoice.discountReason || '');
+  const [scholarship, setScholarship] = useState(''), [siblingPercent, setSiblingPercent] = useState(''), [policyReason, setPolicyReason] = useState('');
   const [refundPaymentId, setRefundPaymentId] = useState(''), [refundAmount, setRefundAmount] = useState(''), [refundMethod, setRefundMethod] = useState('BANK'), [refundReason, setRefundReason] = useState(''), [refundReference, setRefundReference] = useState('');
   const [refundKey, setRefundKey] = useState(key);
   const canPay = ['SUPER_ADMIN', 'ACCOUNTANT'].includes(user.role);
@@ -69,13 +70,23 @@ export default function InvoiceDetailScreen({ route }) {
       setRefundKey(key()); setRefundAmount(''); setRefundReason(''); setRefundReference('');
     });
   };
+  const applyScholarship = () => {
+    const value = Math.round(Number(scholarship) * 100);
+    if (!Number.isSafeInteger(value) || value <= 0 || !policyReason.trim()) return setError('Enter scholarship amount and reason');
+    confirm('Approve scholarship?', `${money(value)} scholarship will reduce this invoice.`, async () => { await api(`/invoices/${id}/scholarship`, 'PUT', { amount: value, reason: policyReason.trim() }); setScholarship(''); });
+  };
+  const applySiblingDiscount = () => {
+    const value = Number(siblingPercent);
+    if (!Number.isInteger(value) || value < 1 || value > 100 || !policyReason.trim()) return setError('Enter sibling discount percent and reason');
+    confirm('Approve sibling discount?', `${value}% sibling discount will reduce this invoice.`, async () => { await api(`/invoices/${id}/sibling-discount`, 'PUT', { percent: value, reason: policyReason.trim() }); setSiblingPercent(''); });
+  };
   const openVoucher = async () => { try { const { document } = await api(`/invoices/${id}/voucher`); await Linking.openURL(`data:text/html;charset=utf-8,${encodeURIComponent(printableHtml(document))}`); } catch (e) { setError(e.message); } };
   const openReceipt = async paymentId => { try { const { document } = await api(`/invoices/${id}/payments/${paymentId}/receipt`); await Linking.openURL(`data:text/html;charset=utf-8,${encodeURIComponent(printableHtml(document))}`); } catch (e) { setError(e.message); } };
   return <Page>
     <Title>{invoice.title}</Title><Muted>{invoice.studentId?.name} · Due {invoice.dueDate}</Muted>
     <ErrorText message={error} />
     {loading && <Busy />}
-    <Card><Title>{money(invoice.balance)} due</Title><Muted>Outstanding balance · {money(invoice.outstandingBalance ?? invoice.balance)} · Advance credit · {money(invoice.advanceCredit)}</Muted>
+    <Card><Title>{money(invoice.balance)} due</Title><Muted>Outstanding balance · {money(invoice.outstandingBalance ?? invoice.balance)} · Advance credit · {money(invoice.advanceCredit)} · Late fee · {money(invoice.lateFee)}</Muted>
       <Muted>Original {money(invoice.amount)} · Concession {money(invoice.discountAmount)}{'\n'}Net charge {money(invoice.netCharge ?? invoice.amount - (invoice.discountAmount || 0))} · Net paid {money(invoice.paid)}{'\n'}Credit available for refund {money(invoice.credit)}</Muted>
       {!!invoice.discountReason && <Muted>Concession reason: {invoice.discountReason}</Muted>}
     </Card>
@@ -84,6 +95,11 @@ export default function InvoiceDetailScreen({ route }) {
       <Field label="Total concession (PKR)" value={discount} onChangeText={setDiscount} keyboardType="decimal-pad" />
       <Field label="Reason" value={discountReason} onChangeText={setDiscountReason} />
       <Button title="Approve concession" onPress={approveDiscount} busy={busy} />
+      <Field label="Scholarship amount (PKR)" value={scholarship} onChangeText={setScholarship} keyboardType="decimal-pad" />
+      <Field label="Sibling discount (%)" value={siblingPercent} onChangeText={setSiblingPercent} keyboardType="number-pad" />
+      <Field label="Policy reason" value={policyReason} onChangeText={setPolicyReason} />
+      <Button title="Approve scholarship" secondary onPress={applyScholarship} busy={busy} />
+      <Button title="Apply sibling discount" secondary onPress={applySiblingDiscount} busy={busy} />
     </Card>}
     {canPay && invoice.balance > 0 && <Card><Title>Record payment</Title>
       <Field label="Amount (PKR)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
