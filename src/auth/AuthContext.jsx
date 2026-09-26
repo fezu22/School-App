@@ -1,6 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import * as Keychain from 'react-native-keychain';
-import { api, setAccessToken } from '../api/client';
+import {
+  api,
+  onUnauthorized,
+  setAccessToken,
+  setSelectedChildId,
+} from '../api/client';
 const Context = createContext(null);
 const service = 'school-platform-session';
 export function AuthProvider({ children }) {
@@ -13,6 +18,16 @@ export function AuthProvider({ children }) {
       setSchoolName(data.schoolName);
     } catch {}
   }
+  useEffect(
+    () =>
+      onUnauthorized(() => {
+        setAccessToken('');
+        setSelectedChildId('');
+        setUser(null);
+        Keychain.resetGenericPassword({ service }).catch(() => {});
+      }),
+    [],
+  );
   useEffect(() => {
     (async () => {
       await refreshBrand();
@@ -33,6 +48,7 @@ export function AuthProvider({ children }) {
   }, []);
   async function signIn(email, password) {
     const data = await api('/auth/login', 'POST', { email, password });
+    setSelectedChildId('');
     await Keychain.setGenericPassword('session', data.token, { service });
     setAccessToken(data.token);
     setUser(data.user);
@@ -43,6 +59,7 @@ export function AuthProvider({ children }) {
     } catch {
     } finally {
       setAccessToken('');
+      setSelectedChildId('');
       await Keychain.resetGenericPassword({ service });
       setUser(null);
     }

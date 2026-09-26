@@ -1,62 +1,98 @@
-# Isolated demo data
+# Isolated development demo data
 
-The demo seed is fictional development data. It is never loaded automatically at server startup and it never reads `MONGODB_URI`. Seed and reset require all of these safeguards:
+The seed is fictional development data. It never runs on server/app startup and reads only `DEMO_MONGODB_URI`—never `MONGODB_URI`. Seeding and reset require `NODE_ENV=development`, `ALLOW_DEMO_SEED=true`, an explicit valid MongoDB URI/database name ending in `_demo`, and a live database connection whose actual database name matches that URI. Seed/reset operations use an expiring database lock to avoid concurrent mutation.
 
-- `NODE_ENV=development`
-- `ALLOW_DEMO_SEED=true`
-- `DEMO_MONGODB_URI` points to a database whose name ends exactly in `_demo`
-- the Mongoose connection is to that same database
+Do not put production credentials in `DEMO_MONGODB_URI`. Keep real values in the ignored `.env`, never in Git. The committed `.env.example` contains placeholders only. If you use Atlas, make a separate disposable database such as `school_platform_demo` and allow the current IP in Atlas. Local Mongo must be a replica set for the app's payment transactions.
 
-Do not put a production URI in `DEMO_MONGODB_URI`. Keep real credentials only in the ignored `.env` file and do not commit it. Start from `.env.example` for a disposable local/dev setup. For Atlas, create a separate demo database such as `school_platform_demo` and use its URI only in the demo variable. To run the API against the same seeded database, set `MONGODB_URI` to that demo URI in a development-only environment; the seeder itself still uses only `DEMO_MONGODB_URI`.
+## Windows PowerShell setup
 
-## Seed
+From `backend`, configure a local replica-set MongoDB first. The compose file starts the service; initiate the replica set once after it is ready:
 
-In PowerShell, configure a disposable development database and explicitly opt in for the current terminal:
+```powershell
+docker compose up -d mongo
+docker compose exec mongo mongosh --eval "rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]})"
+```
+
+If the replica set is already initialized, MongoDB reports that; do not repeatedly reinitialize it. Alternatively, replace the local URI below with a private URI to a dedicated Atlas `_demo` database. Do not include a live credential in shared command history or documentation.
+
+Set these variables in the terminal where seed/reset runs:
 
 ```powershell
 $env:NODE_ENV = "development"
 $env:ALLOW_DEMO_SEED = "true"
-$env:DEMO_MONGODB_URI = "mongodb://127.0.0.1:27017/school_platform_demo"
-$env:MONGODB_URI = $env:DEMO_MONGODB_URI # only if you will run the API against this same local demo DB
+$env:DEMO_MONGODB_URI = "mongodb://127.0.0.1:27017/school_platform_demo?replicaSet=rs0&directConnection=true"
 npm run seed:dev
 ```
 
-On first seed, generated login credentials are written to `backend/.demo-credentials.json`. This file is ignored by Git; treat it as a secret, share only with authorized testers, and do not paste it into tickets or commit it. Re-running the seed upserts the same manifest-owned IDs, preserves the original date anchor and generated passwords, and does not add duplicate demo records. Keep `DEMO_CREDENTIALS_PATH` unset unless you intentionally want to store this file at another protected location.
+The seeded database has 2 branches, 4 classes, 12 students, 15 user accounts, 84 attendance records (12×7 school days), 8 timetable periods, 4 notices, 5 assignments, 3 submissions, 2 lectures, 3 quiz attempts, 5 invoices and 3 payments. Seed output reports actual persisted active/disabled and teacher counts; normal reseed preserves any changed account state, so older demo databases may report different active counts.
 
-## Test accounts and checks
+On first successful seed, random passwords and account state are written to `backend/.demo-credentials.json`. It is Git-ignored. Treat it as a secret and share only with authorized testers. Passwords are never printed. Reruns reuse those passwords. No paid AI provider is called; the published lecture is explicitly labelled `TEST FIXTURE — not AI-generated` and another fictional transcript remains a draft ready for a real configured AI run.
 
-The credential file contains the exact passwords. The fictional email/role matrix is:
+## Accounts and role checks
 
-| Role | Email |
-| --- | --- |
-| Super admin | `school-admin@example.com` |
-| Principal | `principal.north@example.com`, `principal.south@example.com` |
-| Teacher | `teacher.math@example.com`, `teacher.science@example.com`, `teacher.south@example.com` |
-| Accountant | `accountant.north@example.com`, `accountant.south@example.com` |
-| Student | `student.ava@example.com`, `student.noah@example.com`, `student.mia@example.com`, `student.eli@example.com` |
-| Parent | `parent.lee@example.com`, `parent.park@example.com`, `parent.khan@example.com` |
+Use the exact generated passwords in `.demo-credentials.json`.
 
-One demo teacher account is disabled to check inactive-account login rejection. One accountant requires a password change. The fixture includes two campuses, four classes, twelve students, a week of attendance, timetables, notices, assignments/submissions, explicitly labeled fictional lecture/quiz fixtures, and unpaid/partial/paid/overdue/future invoices. Payment amounts are stored in the app's smallest currency unit. No AI provider is called; published lesson content is labeled as a test fixture.
+| Role        | Email                                                                                                       |
+| ----------- | ----------------------------------------------------------------------------------------------------------- |
+| Super admin | `school-admin@example.com`                                                                                  |
+| Principals  | `principal.north@example.com`, `principal.south@example.com`                                                |
+| Teachers    | `teacher.math@example.com`, `teacher.science@example.com`, `teacher.south@example.com`                      |
+| Accountants | `accountant.north@example.com`, `accountant.south@example.com`                                              |
+| Students    | `student.ava@example.com`, `student.noah@example.com`, `student.mia@example.com`, `student.eli@example.com` |
+| Parents     | `parent.lee@example.com`, `parent.park@example.com`, `parent.khan@example.com`                              |
 
-Suggested smoke checklist after starting the API against the same demo DB and opening the app:
+On a new demo database, all 3 teachers are active; `parent.khan@example.com` is disabled; `accountant.south@example.com` must change the initial password. The credential file is authoritative if those statuses have since been changed. Each student login maps to their matching student name. The Lee parent links Ava and Leo (siblings); Park links Ivy; Khan links Noah. Guardian names match those relationships.
 
-1. Sign in with the generated admin account; verify the two campuses/classes/students are visible.
-2. Sign in as each principal and verify only their own campus is visible.
-3. Sign in as each teacher and verify only assigned class/subject data is accessible; the disabled teacher must fail login.
-4. Sign in as a student and a parent; verify only linked student records, published learning items, and allowed finance information are returned.
-5. Sign in as the accountant who requires a password change; protected endpoints should reject access until changed.
-6. Verify attendance, submissions/grades, quiz scores, and invoice/payment states. Attempts to read another branch/student or draft content should be rejected or filtered.
-7. Check unauthenticated protected endpoints return `401`, and role-inappropriate admin actions return `403`.
+Smoke checklist:
 
-## Reset
+1. Sign in as Super Admin; check both campuses and the Users, Branches and Audit tools.
+2. Sign in as each principal; north/south principals must see only their own branch's classes, students and invoices.
+3. Sign in as each teacher; verify class, subject, timetable and student roster scopes. Teacher Math must not open another teacher's class. The disabled account (new DB: Khan parent) must fail login.
+4. Sign in as all four students; each sees their own record only. Draft work and quiz answer keys must not be returned.
+5. Sign in as each parent; change the selected child and confirm attendance, timetable, assignments/submissions, lesson attempts, notices and fees switch to only that child. A linked-child ID belonging to another parent must be rejected.
+6. Check the South accountant's forced password-change screen and the two accountants' separate invoice scopes. Verify unpaid, partial, fully-paid, overdue and future examples and the CASH/BANK/CHEQUE receipts.
+7. Unauthenticated API requests should return 401; role-inappropriate requests should return 403. Revoked/expired API sessions clear mobile credentials and return to Login.
+8. For teacher AI workflow, configure `LLM_API_KEY` and `LLM_MODEL` only in a private development environment. Without them, Generate/AI-review actions show the server's explicit configuration error. Review suggested marks and submit a separate final teacher grade.
 
-Reset has the same three environment gates and uses only the `_demo` URI. It reads the seed manifest and deletes only the exact IDs recorded there. Before deleting, it checks for records outside the manifest that reference seeded records; if any are found, reset stops without deleting seed data. Unrelated records are not deleted. The credentials file is intentionally retained so a later reseed keeps the same test passwords.
+## Running API and Android phone against the same demo DB
+
+In a backend terminal, set the same demo variables and explicitly point the development API at that database (this process environment takes precedence over `.env`):
+
+```powershell
+$env:NODE_ENV = "development"
+$env:DEMO_MONGODB_URI = "mongodb://127.0.0.1:27017/school_platform_demo?replicaSet=rs0&directConnection=true"
+$env:MONGODB_URI = $env:DEMO_MONGODB_URI
+npm run dev
+```
+
+Do not copy a production `MONGODB_URI` into the demo variable. On the phone-connected computer, run these in separate terminals from the project root:
+
+```powershell
+adb reverse tcp:4000 tcp:4000
+yarn start
+```
+
+Then install/start the Android app on the connected phone:
+
+```powershell
+yarn android
+```
+
+The app's development API URL is `http://localhost:4000`; `adb reverse` forwards the phone's localhost port to the computer's backend. USB debugging/ADB authorization must be enabled. On the Android emulator (without a physical phone), use `http://10.0.2.2:4000` instead and update `src/config.js` for that local test.
+
+## Reseed and safe reset
+
+Rerunning `npm run seed:dev` upserts the same manifest-owned IDs, preserves the first recorded date anchor and generated passwords, and refreshes fixture-owned academic/attendance/finance records. Existing user documents are not overwritten during ordinary reseeding: password hash, role, active state, must-change flag, token version and access scopes are preserved. A narrowly matched migration repairs the known old Mia/Eli student links only when their stored mappings are still exactly the old fixture values. Manually customized mappings remain unchanged. If you manually edit a seeded non-user record, a later seed refreshes that record back to fixture values.
+
+Reset must only be run against a disposable `_demo` DB. Stop the API and other demo-data writers first; the reset's reference scan and deletes are not one cross-process transaction. In a backend terminal:
 
 ```powershell
 $env:NODE_ENV = "development"
 $env:ALLOW_DEMO_SEED = "true"
-$env:DEMO_MONGODB_URI = "mongodb://127.0.0.1:27017/school_platform_demo"
+$env:DEMO_MONGODB_URI = "mongodb://127.0.0.1:27017/school_platform_demo?replicaSet=rs0&directConnection=true"
 npm run seed:dev:reset
 ```
 
-Unset the opt-in after use with `Remove-Item Env:ALLOW_DEMO_SEED` (and clear the URI variables if they are no longer needed). Never run seed/reset against production or a database that contains valuable data.
+Reset deletes exact manifest-owned IDs in dependency order and never drops a database. It checks known schema references, audit references, and scans other MongoDB collections recursively for seed ObjectIds or exact 24-character hex-string references. Any detected outside reference stops deletion; unrelated unlinked records remain. The scan is deliberately conservative and can flag coincidental matching IDs. It cannot discover references stored in external systems or references encoded in non-ID formats, and concurrent writes during the scan are why the API must be stopped. If a reset is interrupted, its manifest remains for a retry. The generated credentials file is retained so a later reseed keeps the same passwords.
+
+Unset the opt-in when finished: `Remove-Item Env:ALLOW_DEMO_SEED`. Never run seed/reset against production or a database with valuable records.

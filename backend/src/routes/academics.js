@@ -1,5 +1,5 @@
-import { Router } from "express";
-import { z } from "zod";
+import { Router } from 'express';
+import { z } from 'zod';
 import {
   SchoolClass,
   Student,
@@ -7,7 +7,7 @@ import {
   Notice,
   Timetable,
   Branch,
-} from "../models/index.js";
+} from '../models/index.js';
 import {
   auth,
   allow,
@@ -18,36 +18,38 @@ import {
   getClass,
   getStudent,
   branchAllowed,
-} from "../middleware/auth.js";
-import { id, text, date } from "../config/validation.js";
-import { audit } from "../services/audit.js";
+} from '../middleware/auth.js';
+import { id, text, date } from '../config/validation.js';
+import { audit } from '../services/audit.js';
 export const router = Router();
 router.use(auth);
 router.get(
-  "/branches",
+  '/branches',
   route(async (req, res) =>
     res.json({
       items: await Branch.find(
-        req.user.role === "SUPER_ADMIN"
+        req.user.role === 'SUPER_ADMIN'
           ? {}
-          : { _id: { $in: req.user.branchIds } }
+          : { _id: { $in: req.user.branchIds } },
       ),
-    })
-  )
+    }),
+  ),
 );
 router.get(
-  "/classes",
+  '/classes',
   route(async (req, res) =>
     res.json({
-      items: await SchoolClass.find(await classFilter(req.user))
-        .populate("branchId", "name")
+      items: await SchoolClass.find(
+        await classFilter(req.user, req.selectedStudentId),
+      )
+        .populate('branchId', 'name')
         .sort({ name: 1 }),
-    })
-  )
+    }),
+  ),
 );
 router.post(
-  "/classes",
-  allow("SUPER_ADMIN", "PRINCIPAL", "ACADEMIC_COORDINATOR"),
+  '/classes',
+  allow('SUPER_ADMIN', 'PRINCIPAL', 'ACADEMIC_COORDINATOR'),
   route(async (req, res) => {
     const data = z
       .object({
@@ -60,31 +62,31 @@ router.post(
       .parse(req.body);
     branchAllowed(req.user, data.branchId);
     if (!(await Branch.exists({ _id: data.branchId })))
-      throw problem(400, "Branch not found");
+      throw problem(400, 'Branch not found');
     const item = await SchoolClass.create(data);
-    await audit(req.user, "CREATE", "Class", item._id, item.branchId);
+    await audit(req.user, 'CREATE', 'Class', item._id, item.branchId);
     res.status(201).json({ item });
-  })
+  }),
 );
 router.get(
-  "/students",
+  '/students',
   route(async (req, res) => {
-    const filter = await studentFilter(req.user);
+    const filter = await studentFilter(req.user, req.selectedStudentId);
     if (req.query.classId) {
       id.parse(req.query.classId);
-      await getClass(req.user, req.query.classId);
+      await getClass(req.user, req.query.classId, req.selectedStudentId);
       filter.classId = req.query.classId;
     }
     res.json({
       items: await Student.find(filter)
-        .populate("classId", "name section")
+        .populate('classId', 'name section')
         .sort({ name: 1 }),
     });
-  })
+  }),
 );
 router.post(
-  "/students",
-  allow("SUPER_ADMIN", "PRINCIPAL"),
+  '/students',
+  allow('SUPER_ADMIN', 'PRINCIPAL'),
   route(async (req, res) => {
     const data = z
       .object({
@@ -97,34 +99,38 @@ router.post(
       .parse(req.body);
     const c = await getClass(req.user, data.classId);
     const item = await Student.create({ ...data, branchId: c.branchId });
-    await audit(req.user, "CREATE", "Student", item._id, item.branchId);
+    await audit(req.user, 'CREATE', 'Student', item._id, item.branchId);
     res.status(201).json({ item });
-  })
+  }),
 );
 router.get(
-  "/attendance",
+  '/attendance',
   route(async (req, res) => {
     const filter = {};
     if (req.query.classId) {
-      await getClass(req.user, id.parse(req.query.classId));
+      await getClass(
+        req.user,
+        id.parse(req.query.classId),
+        req.selectedStudentId,
+      );
       filter.classId = req.query.classId;
     }
     if (req.query.date) filter.date = date.parse(req.query.date);
-    const students = await Student.find(await studentFilter(req.user)).select(
-      "_id"
-    );
-    filter.studentId = { $in: students.map((s) => s._id) };
+    const students = await Student.find(
+      await studentFilter(req.user, req.selectedStudentId),
+    ).select('_id');
+    filter.studentId = { $in: students.map(s => s._id) };
     res.json({
       items: await Attendance.find(filter)
-        .populate("studentId", "name admissionNumber")
+        .populate('studentId', 'name admissionNumber')
         .sort({ date: -1 })
         .limit(500),
     });
-  })
+  }),
 );
 router.post(
-  "/attendance",
-  allow("SUPER_ADMIN", "PRINCIPAL", "TEACHER"),
+  '/attendance',
+  allow('SUPER_ADMIN', 'PRINCIPAL', 'TEACHER'),
   route(async (req, res) => {
     const data = z
       .object({
@@ -134,15 +140,15 @@ router.post(
           .array(
             z.object({
               studentId: id,
-              status: z.enum(["PRESENT", "ABSENT", "LATE", "EXCUSED"]),
-            })
+              status: z.enum(['PRESENT', 'ABSENT', 'LATE', 'EXCUSED']),
+            }),
           )
           .min(1)
           .max(200),
       })
       .parse(req.body);
     const c = await getClass(req.user, data.classId);
-    const unique = new Set(data.entries.map((e) => e.studentId));
+    const unique = new Set(data.entries.map(e => e.studentId));
     if (
       unique.size !== data.entries.length ||
       (await Student.countDocuments({
@@ -150,9 +156,9 @@ router.post(
         classId: c._id,
       })) !== unique.size
     )
-      throw problem(400, "Roster does not match class");
+      throw problem(400, 'Roster does not match class');
     await Attendance.bulkWrite(
-      data.entries.map((e) => ({
+      data.entries.map(e => ({
         updateOne: {
           filter: { studentId: e.studentId, date: data.date },
           update: {
@@ -166,37 +172,43 @@ router.post(
           },
           upsert: true,
         },
-      }))
+      })),
     );
-    await audit(req.user, "MARK", "Attendance", c._id, c.branchId);
+    await audit(req.user, 'MARK', 'Attendance', c._id, c.branchId);
     res.json({ ok: true });
-  })
+  }),
 );
 router.get(
-  "/notices",
+  '/notices',
   route(async (req, res) => {
-    const classes = await SchoolClass.find(await classFilter(req.user));
-    const branchIds = [
-      ...req.user.branchIds,
-      ...classes.map((c) => c.branchId),
-    ];
+    const classes = await SchoolClass.find(
+      await classFilter(req.user, req.selectedStudentId),
+    );
+    const branchIds = [...req.user.branchIds, ...classes.map(c => c.branchId)];
     const filter =
-      req.user.role === "SUPER_ADMIN"
+      req.user.role === 'SUPER_ADMIN'
         ? {}
         : {
             $or: [
-              { classId: { $in: classes.map((c) => c._id) } },
-              { classId: null, branchId: { $in: branchIds } },
+              { classId: { $in: classes.map(c => c._id) } },
+              {
+                classId: null,
+                branchId: {
+                  $in: req.selectedStudentId
+                    ? classes.map(c => c.branchId)
+                    : branchIds,
+                },
+              },
             ],
           };
     res.json({
       items: await Notice.find(filter).sort({ createdAt: -1 }).limit(100),
     });
-  })
+  }),
 );
 router.post(
-  "/notices",
-  allow("SUPER_ADMIN", "PRINCIPAL", "TEACHER"),
+  '/notices',
+  allow('SUPER_ADMIN', 'PRINCIPAL', 'TEACHER'),
   route(async (req, res) => {
     const data = z
       .object({
@@ -210,42 +222,44 @@ router.post(
     if (data.classId) {
       const c = await getClass(req.user, data.classId);
       if (String(c.branchId) !== data.branchId)
-        throw problem(400, "Class branch mismatch");
-    } else if (req.user.role === "TEACHER")
-      throw problem(403, "Teacher notice requires assigned class");
+        throw problem(400, 'Class branch mismatch');
+    } else if (req.user.role === 'TEACHER')
+      throw problem(403, 'Teacher notice requires assigned class');
     const item = await Notice.create({ ...data, createdBy: req.user._id });
-    await audit(req.user, "CREATE", "Notice", item._id, item.branchId);
+    await audit(req.user, 'CREATE', 'Notice', item._id, item.branchId);
     res.status(201).json({ item });
-  })
+  }),
 );
 router.get(
-  "/timetable",
+  '/timetable',
   route(async (req, res) => {
-    const classes = await SchoolClass.find(await classFilter(req.user));
+    const classes = await SchoolClass.find(
+      await classFilter(req.user, req.selectedStudentId),
+    );
     res.json({
       items: await Timetable.find({
-        classId: { $in: classes.map((c) => c._id) },
+        classId: { $in: classes.map(c => c._id) },
       })
-        .populate("classId", "name section")
+        .populate('classId', 'name section')
         .sort({ day: 1, start: 1 }),
     });
-  })
+  }),
 );
 router.post(
-  "/timetable",
-  allow("SUPER_ADMIN", "PRINCIPAL", "ACADEMIC_COORDINATOR"),
+  '/timetable',
+  allow('SUPER_ADMIN', 'PRINCIPAL', 'ACADEMIC_COORDINATOR'),
   route(async (req, res) => {
     const data = z
       .object({
         classId: id,
         day: z.enum([
-          "Monday",
-          "Tuesday",
-          "Wednesday",
-          "Thursday",
-          "Friday",
-          "Saturday",
-          "Sunday",
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday',
+          'Sunday',
         ]),
         start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
         end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
@@ -254,7 +268,7 @@ router.post(
       })
       .parse(req.body);
     if (data.end <= data.start)
-      throw problem(400, "End time must be after start");
+      throw problem(400, 'End time must be after start');
     const c = await getClass(req.user, data.classId);
     if (
       await Timetable.exists({
@@ -264,9 +278,9 @@ router.post(
         end: { $gt: data.start },
       })
     )
-      throw problem(409, "Class timetable overlaps");
+      throw problem(409, 'Class timetable overlaps');
     const item = await Timetable.create({ ...data, branchId: c.branchId });
-    await audit(req.user, "CREATE", "Timetable", item._id, item.branchId);
+    await audit(req.user, 'CREATE', 'Timetable', item._id, item.branchId);
     res.status(201).json({ item });
-  })
+  }),
 );

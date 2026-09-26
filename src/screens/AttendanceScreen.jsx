@@ -12,7 +12,6 @@ import {
   Button,
   ErrorText,
   Empty,
-  Busy,
 } from '../components/UI';
 export default function AttendanceScreen() {
   const { user } = useAuth();
