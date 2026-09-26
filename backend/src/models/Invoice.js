@@ -4,6 +4,8 @@ export const Invoice = model("Invoice", {
   branchId: { ...oid, ref: "Branch" },
   title: String,
   amount: Number,
+  discountAmount: { type: Number, default: 0 },
+  discountReason: { type: String, default: '' },
   paymentRevision: { type: Number, default: 0 },
   dueDate: String,
 });

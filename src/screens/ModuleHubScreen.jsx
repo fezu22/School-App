@@ -7,6 +7,7 @@ import { colors } from '../theme';
 
 const descriptions = {
   Profile: 'Review your account and sign-in details.',
+  CashClosing: 'Count branch cash and record the daily variance.',
   Lectures: 'Review published lessons or prepare transcript-based learning.',
   Assignments: 'See homework, submissions, feedback and grading.',
   Attendance: 'View or record attendance for permitted classes.',

@@ -9,6 +9,8 @@ export { Submission } from "./Submission.js";
 export { Notice } from "./Notice.js";
 export { Invoice } from "./Invoice.js";
 export { Payment } from "./Payment.js";
+export { Refund } from './Refund.js';
+export { CashClosing } from './CashClosing.js';
 export { Audit } from "./Audit.js";
 export { Settings } from "./Settings.js";
 export { Timetable } from "./Timetable.js";

@@ -3,4 +3,5 @@ export const Branch = model("Branch", {
   name: { type: String, required: true },
   address: String,
   phone: String,
+  cashRevision: { type: Number, default: 0 },
 });

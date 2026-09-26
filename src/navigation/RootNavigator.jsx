@@ -19,6 +19,7 @@ import LecturesScreen from '../screens/LecturesScreen';
 import LectureDetailScreen from '../screens/LectureDetailScreen';
 import ModuleHubScreen from '../screens/ModuleHubScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import CashClosingScreen from '../screens/CashClosingScreen';
 import { MODULES, ROLES_BY_SCREEN } from './modules';
 
 const Stack = createNativeStackNavigator();
@@ -102,6 +103,7 @@ const moduleScreens = {
   Settings: [SettingsScreen, 'Settings'],
   Password: [PasswordScreen, 'Password'],
   Profile: [ProfileScreen, 'Profile'],
+  CashClosing: [CashClosingScreen, 'CashClosing'],
   Users: [RecordsScreen, 'Users'],
   Branches: [RecordsScreen, 'Branches'],
   Classes: [RecordsScreen, 'Classes'],

@@ -11,6 +11,8 @@ import {
   Lecture,
   Notice,
   Payment,
+  Refund,
+  CashClosing,
   QuizAttempt,
   SchoolClass,
   Student,
@@ -74,6 +76,11 @@ const references = [
   [Invoice, 'branchId', 'branches', 'invoices'],
   [Payment, 'invoiceId', 'invoices', 'payments'],
   [Payment, 'recordedBy', 'users', 'payments'],
+  [Refund, 'invoiceId', 'invoices', null],
+  [Refund, 'paymentId', 'payments', null],
+  [Refund, 'processedBy', 'users', null],
+  [CashClosing, 'branchId', 'branches', null],
+  [CashClosing, 'closedBy', 'users', null],
   [Audit, 'actor', 'users', null],
   [Audit, 'branchId', 'branches', null],
 ];
@@ -140,6 +147,8 @@ async function assertNoUnknownCollectionReferences(connection, owned) {
     Object.values(models).map(Model => Model.collection.collectionName),
   );
   knownCollections.add(Audit.collection.collectionName);
+  knownCollections.add(Refund.collection.collectionName);
+  knownCollections.add(CashClosing.collection.collectionName);
   knownCollections.add(manifestCollection);
   const collections = await connection.db
     .listCollections({ type: 'collection' }, { nameOnly: true })
