@@ -20,6 +20,7 @@ import LectureDetailScreen from '../screens/LectureDetailScreen';
 import ModuleHubScreen from '../screens/ModuleHubScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import CashClosingScreen from '../screens/CashClosingScreen';
+import FeePlansScreen from '../screens/FeePlansScreen';
 import { MODULES, ROLES_BY_SCREEN } from './modules';
 
 const Stack = createNativeStackNavigator();
@@ -111,6 +112,7 @@ const moduleScreens = {
   Notices: [RecordsScreen, 'Notices'],
   Timetable: [RecordsScreen, 'Timetable'],
   Invoices: [RecordsScreen, 'Invoices'],
+  FeePlans: [FeePlansScreen, 'FeePlans'],
   Audit: [RecordsScreen, 'Audit'],
 };
 const guardedModuleScreens = Object.fromEntries(

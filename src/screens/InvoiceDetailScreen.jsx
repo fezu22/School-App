@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
@@ -12,6 +12,7 @@ const toPaisa = value => {
   return result;
 };
 const methods = ['CASH', 'BANK', 'CHEQUE'].map(v => ({ value: v, label: v }));
+const printableHtml = document => `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"/><style>body{font-family:Arial;padding:24px;color:#172033}h1{font-size:24px}table{width:100%;border-collapse:collapse}td{padding:8px;border-bottom:1px solid #ddd}.total{font-size:20px;font-weight:bold}</style></head><body><h1>${document.kind}</h1><p>${document.documentNumber}<br/>Issued ${new Date(document.issuedAt).toLocaleString()}</p><table><tr><td>Student</td><td>${document.student?.name || ''}</td></tr><tr><td>Invoice</td><td>${document.invoice.title}</td></tr><tr><td>Due</td><td>${document.invoice.dueDate}</td></tr><tr><td>Period</td><td>${document.invoice.periodKey || '-'}</td></tr><tr><td>Amount</td><td>PKR ${(document.amounts.payment ?? document.amounts.charge ?? 0) / 100}</td></tr><tr><td>Balance</td><td>PKR ${(document.amounts.balance || 0) / 100}</td></tr></table><p>Keep this ${document.kind.toLowerCase()} for your records.</p></body></html>`;
 export default function InvoiceDetailScreen({ route }) {
   const id = route.params.invoice._id;
   const { user } = useAuth();
@@ -67,6 +68,8 @@ export default function InvoiceDetailScreen({ route }) {
       setRefundKey(key()); setRefundAmount(''); setRefundReason(''); setRefundReference('');
     });
   };
+  const openVoucher = async () => { try { const { document } = await api(`/invoices/${id}/voucher`); await Linking.openURL(`data:text/html;charset=utf-8,${encodeURIComponent(printableHtml(document))}`); } catch (e) { setError(e.message); } };
+  const openReceipt = async paymentId => { try { const { document } = await api(`/invoices/${id}/payments/${paymentId}/receipt`); await Linking.openURL(`data:text/html;charset=utf-8,${encodeURIComponent(printableHtml(document))}`); } catch (e) { setError(e.message); } };
   return <Page>
     <Title>{invoice.title}</Title><Muted>{invoice.studentId?.name} · Due {invoice.dueDate}</Muted>
     <ErrorText message={error} />
@@ -96,7 +99,8 @@ export default function InvoiceDetailScreen({ route }) {
       <Button title="Record refund" onPress={refund} busy={busy} />
     </Card>}
     <Title>Receipts</Title>
-    {(invoice.payments || []).map(p => <Card key={p._id}><Title>{money(p.amount)}</Title><Muted>{p.method} · {new Date(p.createdAt).toLocaleString()}{'\n'}Receipt ID: {p._id}{'\n'}{p.reference}</Muted></Card>)}
+    <Button title="Print fee voucher" secondary onPress={openVoucher} />
+    {(invoice.payments || []).map(p => <Card key={p._id}><Title>{money(p.amount)}</Title><Muted>{p.method} · {new Date(p.createdAt).toLocaleString()}{'\n'}Receipt ID: {p._id}{'\n'}{p.reference}</Muted><Button title="Print / reprint receipt" secondary onPress={() => openReceipt(p._id)} /></Card>)}
     <Title>Refund history</Title>
     {(invoice.refunds || []).map(r => <Card key={r._id}><Title>{money(r.amount)}</Title><Muted>{r.method} · {new Date(r.createdAt).toLocaleString()}{'\n'}Original receipt: {r.paymentId}{'\n'}{r.reason} · {r.reference}</Muted></Card>)}
     <Button title="Refresh" secondary onPress={load} busy={loading} />

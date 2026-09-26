@@ -8,6 +8,7 @@ export { Assignment } from "./Assignment.js";
 export { Submission } from "./Submission.js";
 export { Notice } from "./Notice.js";
 export { Invoice } from "./Invoice.js";
+export { FeePlan } from "./FeePlan.js";
 export { Payment } from "./Payment.js";
 export { Refund } from './Refund.js';
 export { CashClosing } from './CashClosing.js';

@@ -11,6 +11,16 @@ const positivePaisa = z.number().int().min(1).max(100000000);
 const requestKey = z.string().min(12).max(100);
 const method = z.enum(['CASH', 'BANK', 'CHEQUE']);
 const today = () => new Date().toISOString().slice(0, 10);
+const printable = (kind, invoice, payment, state) => ({
+  kind,
+  currency: 'PKR',
+  documentNumber: `${kind}-${String(payment?._id || invoice._id)}`,
+  issuedAt: new Date().toISOString(),
+  student: invoice.studentId,
+  invoice: { _id: invoice._id, title: invoice.title, category: invoice.category, dueDate: invoice.dueDate, periodKey: invoice.periodKey },
+  amounts: payment ? { payment: payment.amount, paid: state.paid, balance: state.balance } : { charge: state.netCharge, balance: state.balance },
+  payment: payment ? { amount: payment.amount, method: payment.method, reference: payment.reference, createdAt: payment.createdAt } : null,
+});
 
 async function accessibleInvoice(req, invoiceId) {
   const item = await Invoice.findById(id.parse(invoiceId));
@@ -87,6 +97,18 @@ router.get('/', route(async (req, res) => {
   const invoices = await Invoice.find({ studentId: { $in: students.map(s => s._id) } }).populate('studentId', 'name admissionNumber').sort({ createdAt: -1 });
   const items = await Promise.all(invoices.map(async i => ({ ...i.toObject(), ...await ledger(i) })));
   res.json({ items });
+}));
+router.get('/:id/voucher', route(async (req, res) => {
+  const invoice = await accessibleInvoice(req, req.params.id);
+  const state = await ledger(invoice);
+  res.json({ document: printable('VOUCHER', invoice, null, state) });
+}));
+router.get('/:id/payments/:paymentId/receipt', route(async (req, res) => {
+  const invoice = await accessibleInvoice(req, req.params.id);
+  const payment = await Payment.findOne({ _id: id.parse(req.params.paymentId), invoiceId: invoice._id });
+  if (!payment) throw problem(404, 'Payment not found for this invoice');
+  const state = await ledger(invoice);
+  res.json({ document: printable('RECEIPT', invoice, payment, state) });
 }));
 router.post('/', manager, route(async (req, res) => {
   const data = z.object({ studentId: id, title: text, amount: positivePaisa, dueDate: date }).parse(req.body);
