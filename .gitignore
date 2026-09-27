@@ -42,6 +42,7 @@ local.properties
 !.env.example
 node_modules/
 /android/.gradle-user-home/
+/android/.gradle-user-home-clean/
 /.bundle/
 npm-debug.log
 yarn-error.log
