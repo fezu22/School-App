@@ -53,10 +53,10 @@ after(async () => {
   await mongo?.stop();
 });
 test("no school demo records on empty database", async () =>
-  assert.deepEqual((await call(admin, "get", "/classes")).body.items, []));
+  assert.deepEqual((await call(admin, "get", "/staff/classes")).body.items, []));
 test("create branches classes and students", async () => {
   for (const n of ["A", "B"]) {
-    const r = await call(admin, "post", "/admin/branches", { name: n });
+    const r = await call(admin, "post", "/staff/admin/branches", { name: n });
     assert.equal(r.status, 201, r.text);
     if (n === "A") b1 = r.body.item._id;
     else b2 = r.body.item._id;
@@ -65,7 +65,7 @@ test("create branches classes and students", async () => {
     ["A", b1],
     ["B", b2],
   ]) {
-    const r = await call(admin, "post", "/classes", {
+    const r = await call(admin, "post", "/staff/classes", {
       name: n,
       section: "1",
       session: "2026",
@@ -80,7 +80,7 @@ test("create branches classes and students", async () => {
     ["Child A", c1],
     ["Child B", c2],
   ]) {
-    const r = await call(admin, "post", "/students", {
+    const r = await call(admin, "post", "/staff/students", {
       name,
       admissionNumber: name,
       classId,
@@ -103,7 +103,7 @@ test("account assignment is admin only", async () => {
     ["student@test.invalid", "STUDENT", { studentIds: [s1] }],
     ["other@test.invalid", "PRINCIPAL", { branchIds: [b2] }],
   ]) {
-    const r = await call(admin, "post", "/admin/users", {
+    const r = await call(admin, "post", "/staff/admin/users", {
       email,
       name: role,
       password,
@@ -117,24 +117,24 @@ test("account assignment is admin only", async () => {
   parent = await login("parent@test.invalid");
   student = await login("student@test.invalid");
   other = await login("other@test.invalid");
-  assert.equal((await call(teacher, "post", "/admin/users", {})).status, 403);
+  assert.equal((await call(teacher, "post", "/staff/admin/users", {})).status, 403);
 });
 test("teacher guardian and branch isolation", async () => {
   assert.deepEqual(
-    (await call(teacher, "get", "/students")).body.items.map((s) => s._id),
+    (await call(teacher, "get", "/staff/students")).body.items.map((s) => s._id),
     [s1]
   );
   assert.deepEqual(
-    (await call(parent, "get", "/students")).body.items.map((s) => s._id),
+    (await call(parent, "get", "/parent/profile")).body.items.map((s) => s._id),
     [s1]
   );
   assert.equal(
-    (await call(teacher, "get", "/students?classId=" + c2)).status,
+    (await call(teacher, "get", "/staff/students?classId=" + c2)).status,
     403
   );
   assert.equal(
     (
-      await call(other, "post", "/classes", {
+      await call(other, "post", "/staff/classes", {
         name: "Bad",
         section: "1",
         session: "2026",
@@ -150,15 +150,15 @@ test("attendance rejects wrong roster and scopes parent view", async () => {
     date: "2026-09-24",
     entries: [{ studentId: s2, status: "PRESENT" }],
   };
-  assert.equal((await call(teacher, "post", "/attendance", body)).status, 400);
+  assert.equal((await call(teacher, "post", "/staff/attendance", body)).status, 400);
   body.entries[0].studentId = s1;
-  assert.equal((await call(teacher, "post", "/attendance", body)).status, 200);
-  const r = await call(parent, "get", "/attendance");
+  assert.equal((await call(teacher, "post", "/staff/attendance", body)).status, 200);
+  const r = await call(parent, "get", "/parent/attendance");
   assert.equal(r.body.items.length, 1);
   assert.equal(r.body.items[0].studentId._id, s1);
 });
 test("draft publish submission grading workflow", async () => {
-  let r = await call(teacher, "post", "/assignments", {
+  let r = await call(teacher, "post", "/staff/assignments", {
     title: "Fractions",
     instructions: "Explain fractions",
     subject: "Math",
@@ -169,53 +169,53 @@ test("draft publish submission grading workflow", async () => {
   assert.equal(r.status, 201, r.text);
   assignment = r.body.item._id;
   assert.equal(
-    (await call(student, "get", "/assignments")).body.items.length,
+    (await call(student, "get", "/student/assignments")).body.items.length,
     0
   );
   assert.equal(
-    (await call(student, "get", `/assignments/${assignment}/submissions`))
+    (await call(student, "get", `/student/assignments/${assignment}/submissions`))
       .status,
     403
   );
   assert.equal(
     (
-      await call(teacher, "patch", `/assignments/${assignment}/publish`, {
+      await call(teacher, "patch", `/staff/assignments/${assignment}/publish`, {
         published: true,
       })
     ).status,
     200
   );
-  r = await call(student, "post", `/assignments/${assignment}/submissions`, {
+  r = await call(student, "post", `/student/assignments/${assignment}/submissions`, {
     answer: "Two halves make a whole",
   });
   assert.equal(r.status, 201, r.text);
   assert.equal(
     (
-      await call(parent, "post", `/assignments/${assignment}/submissions`, {
+      await call(parent, "post", `/parent/assignments/${assignment}/submissions`, {
         answer: "x",
       })
     ).status,
-    403
+    404
   );
   assert.equal(
     (
       await call(
         teacher,
         "patch",
-        `/assignments/${assignment}/submissions/${r.body.item._id}`,
+        `/staff/assignments/${assignment}/submissions/${r.body.item._id}`,
         { marks: 8, feedback: "Explain more" }
       )
     ).status,
     200
   );
   assert.equal(
-    (await call(parent, "get", `/assignments/${assignment}/submissions`)).body
+    (await call(parent, "get", `/parent/assignments/${assignment}/submissions`)).body
       .items[0].marks,
     8
   );
 });
 test("partial payments reject overpayment and duplicate retries", async () => {
-  let r = await call(admin, "post", "/invoices", {
+  let r = await call(admin, "post", "/staff/invoices", {
     studentId: s1,
     title: "Tuition",
     amount: 10000,
@@ -229,16 +229,16 @@ test("partial payments reject overpayment and duplicate retries", async () => {
     requestKey: "test-payment-request-1",
   };
   assert.equal(
-    (await call(admin, "post", `/invoices/${invoice}/payments`, p)).status,
+    (await call(admin, "post", `/staff/invoices/${invoice}/payments`, p)).status,
     201
   );
   assert.equal(
-    (await call(admin, "post", `/invoices/${invoice}/payments`, p)).status,
+    (await call(admin, "post", `/staff/invoices/${invoice}/payments`, p)).status,
     200
   );
   assert.equal(
     (
-      await call(admin, "post", `/invoices/${invoice}/payments`, {
+      await call(admin, "post", `/staff/invoices/${invoice}/payments`, {
         ...p,
         amount: 7000,
         requestKey: "test-payment-request-2",
@@ -247,10 +247,10 @@ test("partial payments reject overpayment and duplicate retries", async () => {
     400
   );
   assert.equal(
-    (await call(parent, "get", "/invoices")).body.items[0].balance,
+    (await call(parent, "get", "/parent/invoices")).body.items[0].balance,
     6000
   );
-  assert.equal((await call(teacher, "get", "/invoices")).status, 403);
+  assert.equal((await call(teacher, "get", "/staff/invoices")).status, 403);
 });
 test("timetable rejects overlap", async () => {
   const p = {
@@ -261,12 +261,12 @@ test("timetable rejects overlap", async () => {
     subject: "Math",
     room: "1",
   };
-  assert.equal((await call(admin, "post", "/timetable", p)).status, 201);
-  assert.equal((await call(admin, "post", "/timetable", p)).status, 409);
-  assert.equal((await call(parent, "get", "/timetable")).body.items.length, 1);
+  assert.equal((await call(admin, "post", "/staff/timetable", p)).status, 201);
+  assert.equal((await call(admin, "post", "/staff/timetable", p)).status, 409);
+  assert.equal((await call(parent, "get", "/parent/timetable")).body.items.length, 1);
 });
 test("AI absence explicit, quiz answer key private, server grades", async () => {
-  const r = await call(teacher, "post", "/lectures", {
+  const r = await call(teacher, "post", "/staff/lectures", {
     title: "Fractions",
     classId: c1,
     subject: "Math",
@@ -276,7 +276,7 @@ test("AI absence explicit, quiz answer key private, server grades", async () => 
   assert.equal(r.status, 201, r.text);
   const id = r.body.item._id;
   assert.equal(
-    (await call(teacher, "post", `/lectures/${id}/generate`)).status,
+    (await call(teacher, "post", `/staff/lectures/${id}/generate`)).status,
     503
   );
   await Lecture.updateOne(
@@ -298,59 +298,70 @@ test("AI absence explicit, quiz answer key private, server grades", async () => 
       },
     }
   );
-  assert.equal((await call(student, "get", `/lectures/${id}`)).status, 403);
-  const pub = await call(teacher, "post", `/lectures/${id}/publish`, {
+  assert.equal((await call(student, "get", `/student/lectures/${id}`)).status, 403);
+  const pub = await call(teacher, "post", `/staff/lectures/${id}/publish`, {
     summary: "Parts of a whole.",
     homework: "Explain one half.",
     dueDate: "2026-10-01",
     maxMarks: 10,
   });
   assert.equal(pub.status, 200, pub.text);
-  const quiz = await call(student, "get", `/lectures/${id}`);
+  const quiz = await call(student, "get", `/student/lectures/${id}`);
   assert.equal(quiz.body.item.questions[0].correctIndex, undefined);
   assert.equal(quiz.body.item.questions[0].explanation, undefined);
-  const a = await call(student, "post", `/lectures/${id}/attempts`, {
+  const a = await call(student, "post", `/student/lectures/${id}/attempts`, {
     answers: [0],
   });
   assert.equal(a.status, 201, a.text);
   assert.equal(a.body.item.score, 1);
   assert.equal(
-    (await call(student, "post", `/lectures/${id}/attempts`, { answers: [0] }))
+    (await call(student, "post", `/student/lectures/${id}/attempts`, { answers: [0] }))
       .status,
     409
   );
+});
+test("each role can only use its own portal", async () => {
+  assert.equal((await call(student, "get", "/staff/classes")).status, 403);
+  assert.equal((await call(student, "get", "/parent/profile")).status, 403);
+  assert.equal((await call(student, "get", "/finance/invoices")).status, 403);
+  assert.equal((await call(parent, "get", "/student/profile")).status, 403);
+  assert.equal((await call(parent, "get", "/finance/invoices")).status, 403);
+  assert.equal((await call(parent, "get", "/staff/students")).status, 403);
+  assert.equal((await call(teacher, "get", "/student/profile")).status, 403);
+  assert.equal((await call(teacher, "get", "/finance/invoices")).status, 403);
+  assert.equal((await call(other, "get", "/staff/admin/users")).status, 403);
 });
 test("disabled user loses existing token access", async () => {
   const u = await User.findOne({ email: "teacher@test.invalid" });
   assert.equal(
     (
-      await call(admin, "patch", `/admin/users/${u._id}/active`, {
+      await call(admin, "patch", `/staff/admin/users/${u._id}/active`, {
         active: false,
       })
     ).status,
     200
   );
-  assert.equal((await call(teacher, "get", "/classes")).status, 401);
+  assert.equal((await call(teacher, "get", "/staff/classes")).status, 401);
 });
 
 test("scope changes invalidate old sessions and change visible records", async () => {
   const u = await User.findOne({ email: "parent@test.invalid" });
-  const r = await call(admin, "patch", `/admin/users/${u._id}/scope`, {
+  const r = await call(admin, "patch", `/staff/admin/users/${u._id}/scope`, {
     branchIds: [],
     classIds: [],
     studentIds: [s2],
     subjectNames: [],
   });
   assert.equal(r.status, 200, r.text);
-  assert.equal((await call(parent, "get", "/students")).status, 401);
+  assert.equal((await call(parent, "get", "/parent/profile")).status, 401);
   const renewed = await login("parent@test.invalid");
   assert.deepEqual(
-    (await call(renewed, "get", "/students")).body.items.map((s) => s._id),
+    (await call(renewed, "get", "/parent/profile")).body.items.map((s) => s._id),
     [s2]
   );
 });
 test("concurrent payments cannot exceed outstanding balance", async () => {
-  const inv = await call(admin, "post", "/invoices", {
+  const inv = await call(admin, "post", "/staff/invoices", {
     studentId: s2,
     title: "Concurrent payment test",
     amount: 10000,
@@ -359,7 +370,7 @@ test("concurrent payments cannot exceed outstanding balance", async () => {
   assert.equal(inv.status, 201, inv.text);
   const results = await Promise.all(
     ["concurrent-request-A", "concurrent-request-B"].map((requestKey) =>
-      call(admin, "post", `/invoices/${inv.body.item._id}/payments`, {
+      call(admin, "post", `/staff/invoices/${inv.body.item._id}/payments`, {
         amount: 7000,
         method: "CASH",
         requestKey,
