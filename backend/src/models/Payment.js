@@ -6,7 +6,4 @@ export const Payment = model("Payment", {
   reference: String,
   recordedBy: { ...oid, ref: "User" },
   requestKey: { type: String, unique: true },
-  allocations: [{ invoiceId: { ...oid, ref: "Invoice" }, dueKey: String, amount: Number }],
-  advanceAmount: { type: Number, default: 0 },
-  advanceUsed: { type: Number, default: 0 },
 });

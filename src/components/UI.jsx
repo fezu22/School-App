@@ -7,48 +7,30 @@ import {
   TouchableOpacity,
   View,
   StyleSheet,
-  Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { KeyboardAvoidingView } from 'react-native';
 import { colors as c } from '../theme';
 export function Page({ children, refreshControl }) {
   return (
-    <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          style={s.page}
-          contentContainerStyle={s.content}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          refreshControl={refreshControl}
-        >
-          {children}
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+    <ScrollView
+      style={s.page}
+      contentContainerStyle={s.content}
+      keyboardShouldPersistTaps="handled"
+      refreshControl={refreshControl}
+    >
+      {children}
+    </ScrollView>
   );
 }
 export function Card({ children, onPress }) {
   return onPress ? (
-    <TouchableOpacity
-      accessibilityRole="button"
-      style={s.card}
-      onPress={onPress}
-      activeOpacity={0.78}
-    >
+    <TouchableOpacity style={s.card} onPress={onPress}>
       {children}
     </TouchableOpacity>
   ) : (
     <View style={s.card}>{children}</View>
   );
 }
-export const Title = ({ children, style }) => (
-  <Text style={[s.title, style]}>{children}</Text>
-);
+export const Title = ({ children }) => <Text style={s.title}>{children}</Text>;
 export const Label = ({ children }) => <Text style={s.label}>{children}</Text>;
 export const Muted = ({ children }) => <Text style={s.muted}>{children}</Text>;
 export function Field({
@@ -58,15 +40,12 @@ export function Field({
   password,
   multiline,
   keyboardType,
-  error,
-  editable = true,
 }) {
   return (
     <View style={s.field}>
       <Label>{label}</Label>
       <TextInput
         accessibilityLabel={label}
-        accessibilityState={{ disabled: !editable }}
         style={[
           s.input,
           multiline && { height: 110, textAlignVertical: 'top' },
@@ -76,13 +55,10 @@ export function Field({
         secureTextEntry={password}
         multiline={multiline}
         keyboardType={keyboardType}
-        editable={editable}
-        autoCorrect={false}
         autoCapitalize="none"
         placeholder={label}
         placeholderTextColor="#8a97aa"
       />
-      {error ? <ErrorText message={error} /> : null}
     </View>
   );
 }
@@ -90,7 +66,6 @@ export function Button({ title, onPress, busy, secondary, danger }) {
   return (
     <TouchableOpacity
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!busy }}
       disabled={busy}
       style={[
         s.button,
@@ -122,7 +97,6 @@ export function Choice({ label, options, value, onChange, multiple = false }) {
           return (
             <TouchableOpacity
               accessibilityRole="button"
-              accessibilityState={{ selected, disabled: false }}
               key={o.value}
               style={[s.chip, selected && s.selected]}
               onPress={() =>
@@ -163,42 +137,9 @@ export const Empty = ({ text = 'No records yet.' }) => (
 export const Busy = () => (
   <ActivityIndicator style={{ margin: 30 }} color={c.primary} />
 );
-export function StatusBadge({ label, tone = 'neutral' }) {
-  const palette = {
-    neutral: ['#E8EEF7', c.text],
-    success: ['#E5F5EE', c.green],
-    warning: ['#FFF4D6', '#805B00'],
-    danger: ['#FDE9E7', c.danger],
-    info: ['#E7EEFF', c.primary],
-  }[tone] || ['#E8EEF7', c.text];
-  return (
-    <View
-      style={{
-        alignSelf: 'flex-start',
-        backgroundColor: palette[0],
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 100,
-        minHeight: 32,
-        justifyContent: 'center',
-      }}
-    >
-      <Text style={{ color: palette[1], fontSize: 12, fontWeight: '800' }}>
-        {label}
-      </Text>
-    </View>
-  );
-}
 export const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: c.bg },
   page: { flex: 1, backgroundColor: c.bg },
-  content: {
-    padding: 20,
-    paddingBottom: 45,
-    width: '100%',
-    maxWidth: 920,
-    alignSelf: 'center',
-  },
+  content: { padding: 20, paddingBottom: 45 },
   card: {
     backgroundColor: c.paper,
     borderRadius: 18,
@@ -206,7 +147,6 @@ export const s = StyleSheet.create({
     marginBottom: 14,
     borderWidth: 1,
     borderColor: c.border,
-    minHeight: 44,
   },
   title: { fontSize: 22, fontWeight: '800', color: c.text, marginBottom: 8 },
   label: { fontSize: 14, fontWeight: '700', color: c.text, marginBottom: 6 },
@@ -218,14 +158,12 @@ export const s = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 12,
     height: 50,
-    minHeight: 50,
     paddingHorizontal: 13,
     color: c.text,
   },
   button: {
     backgroundColor: c.primary,
     padding: 15,
-    minHeight: 48,
     borderRadius: 12,
     alignItems: 'center',
     marginVertical: 7,
@@ -235,8 +173,6 @@ export const s = StyleSheet.create({
   wrap: { flexDirection: 'row', flexWrap: 'wrap' },
   chip: {
     padding: 10,
-    minHeight: 44,
-    justifyContent: 'center',
     borderRadius: 10,
     backgroundColor: '#E9EDF4',
     margin: 3,

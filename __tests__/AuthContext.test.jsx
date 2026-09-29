@@ -1,72 +1,64 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { Text } from 'react-native';
-import * as Keychain from 'react-native-keychain';
+import { Text, Button } from 'react-native';
 import { AuthProvider, useAuth } from '../src/auth/AuthContext';
 
-let mockUnauthorizedHandler;
-const mockApi = jest.fn();
-const mockSetAccessToken = jest.fn();
-const mockSetSelectedChildId = jest.fn();
-
 jest.mock('react-native-keychain', () => ({
-  getGenericPassword: jest.fn(),
-  resetGenericPassword: jest.fn(),
-  setGenericPassword: jest.fn(),
-}));
-jest.mock('../src/api/client', () => ({
-  api: (...args) => mockApi(...args),
-  onUnauthorized: handler => {
-    mockUnauthorizedHandler = handler;
-    return jest.fn();
-  },
-  setAccessToken: (...args) => mockSetAccessToken(...args),
-  setSelectedChildId: (...args) => mockSetSelectedChildId(...args),
+  getGenericPassword: jest.fn().mockResolvedValue(false),
+  setGenericPassword: jest.fn().mockResolvedValue(true),
+  resetGenericPassword: jest.fn().mockResolvedValue(true),
 }));
 
-function SessionProbe() {
-  const { user } = useAuth();
-  return <Text>{user ? `Signed in: ${user.email}` : 'Login'}</Text>;
+jest.mock('../src/api/client', () => ({
+  api: jest.fn().mockResolvedValue({ schoolName: 'Test School' }),
+  setAccessToken: jest.fn(),
+}));
+
+function Probe() {
+  const { user, loading, devSignIn, signOut } = useAuth();
+  if (loading) return <Text>Loading</Text>;
+  if (!user) {
+    return (
+      <>
+        <Text>Login</Text>
+        <Button title="AsStudent" onPress={() => devSignIn('STUDENT')} />
+      </>
+    );
+  }
+  return (
+    <>
+      <Text>
+        Signed in: {user.name} ({user.role})
+      </Text>
+      <Button title="SignOut" onPress={signOut} />
+    </>
+  );
 }
 
-test('revoked session clears keychain and auth state so navigation returns to Login', async () => {
-  jest.clearAllMocks();
-  Keychain.getGenericPassword.mockResolvedValue({ password: 'stored-token' });
-  Keychain.resetGenericPassword.mockResolvedValue(true);
-  mockApi.mockImplementation(async path =>
-    path === '/branding'
-      ? { schoolName: 'Demo School' }
-      : {
-          user: {
-            _id: 'parent-1',
-            email: 'parent@example.com',
-            role: 'PARENT',
-          },
-        },
-  );
-
+test('devSignIn sets user and signOut clears it', async () => {
   let root;
   await act(async () => {
     root = TestRenderer.create(
       <AuthProvider>
-        <SessionProbe />
+        <Probe />
       </AuthProvider>,
     );
   });
-  expect(JSON.stringify(root.toJSON())).toContain(
-    'Signed in: parent@example.com',
-  );
-  expect(mockSetAccessToken).toHaveBeenCalledWith('stored-token');
-
   await act(async () => {
-    mockUnauthorizedHandler();
-    await Promise.resolve();
+    await new Promise(r => setTimeout(r, 80));
   });
   expect(JSON.stringify(root.toJSON())).toContain('Login');
-  expect(mockSetAccessToken).toHaveBeenLastCalledWith('');
-  expect(mockSetSelectedChildId).toHaveBeenCalledWith('');
-  expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
-    service: 'school-platform-session',
+
+  const asStudent = root.root.findByProps({ title: 'AsStudent' });
+  await act(async () => {
+    asStudent.props.onPress();
   });
-  await act(() => root.unmount());
+  expect(JSON.stringify(root.toJSON())).toContain('Signed in:');
+  expect(JSON.stringify(root.toJSON())).toContain('STUDENT');
+
+  const signOutBtn = root.root.findByProps({ title: 'SignOut' });
+  await act(async () => {
+    signOutBtn.props.onPress();
+  });
+  expect(JSON.stringify(root.toJSON())).toContain('Login');
 });

@@ -40,10 +40,8 @@ set APP_HOME=%DIRNAME%
 @rem Resolve any "." and ".." in APP_HOME to make it shorter.
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
-rem Keep Gradle's mutable cache in a short path to avoid Windows MAX_PATH
-rem failures while Ninja resolves React Native prefab headers.
-set "GRADLE_USER_HOME=%TEMP%\school-gradle"
-set "ANDROID_USER_HOME=%LOCALAPPDATA%\Android"
+set "GRADLE_USER_HOME=%APP_HOME%\.gradle-user-home"
+set "ANDROID_USER_HOME=%APP_HOME%\.android-user-home"
 
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
