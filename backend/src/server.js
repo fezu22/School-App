@@ -3,14 +3,38 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { app } from "./app.js";
 import { User, Lecture, Submission } from "./models/index.js";
+const mongoUri =
+  process.env.MONGO_URI ||
+  process.env.MONGODB_URI ||
+  process.env.DATABASE_URL;
+const normalizedMongoUri = mongoUri?.trim();
+let isValidMongoUri = false;
+try {
+  const parsedMongoUri = new URL(normalizedMongoUri);
+  isValidMongoUri =
+    ["mongodb:", "mongodb+srv:"].includes(parsedMongoUri.protocol) &&
+    Boolean(parsedMongoUri.hostname);
+} catch {
+}
+if (!isValidMongoUri) {
+  console.error(
+    "A valid MongoDB URI is required. Set MONGO_URI, MONGODB_URI, or DATABASE_URL."
+  );
+  process.exit(1);
+}
 if (
   !process.env.JWT_SECRET ||
   process.env.JWT_SECRET.length < 32 ||
   process.env.JWT_SECRET.includes("replace")
 )
   throw Error("Set a random JWT_SECRET of at least 32 characters");
-if (!process.env.MONGODB_URI) throw Error("MONGODB_URI is required");
-await mongoose.connect(process.env.MONGODB_URI);
+try {
+  await mongoose.connect(normalizedMongoUri);
+  console.log("MongoDB Connected Successfully");
+} catch (error) {
+  console.error("MongoDB connection failed:", error.message);
+  process.exit(1);
+}
 await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
 await Submission.updateMany(
   { aiState: "PROCESSING" },

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import {
@@ -11,6 +11,7 @@ import {
   Button,
   ErrorText,
   Busy,
+  StatusBadge,
 } from '../components/UI';
 export default function LectureDetailScreen({ route }) {
   const id = route.params.lectureId;
@@ -26,12 +27,17 @@ export default function LectureDetailScreen({ route }) {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [feedback, setFeedback] = useState([]);
+  const draftDirty = useRef(false);
+  const initialized = useRef(false);
   const load = useCallback(async () => {
     try {
       const d = await api('/lectures/' + id);
       setLecture(d.item);
-      setSummary(d.item.summary || '');
-      setHomework(d.item.homework || '');
+      if (!initialized.current || !draftDirty.current) {
+        setSummary(d.item.summary || '');
+        setHomework(d.item.homework || '');
+      }
+      initialized.current = true;
       setAttempts((await api(`/lectures/${id}/attempts`)).items);
     } catch (e) {
       setError(e.message);
@@ -51,6 +57,7 @@ export default function LectureDetailScreen({ route }) {
     try {
       const d = await api(`/lectures/${id}/${path}`, 'POST', body);
       if (d.feedback) setFeedback(d.feedback);
+      if (path === 'publish') draftDirty.current = false;
       await load();
     } catch (e) {
       setError(e.message);
@@ -69,9 +76,19 @@ export default function LectureDetailScreen({ route }) {
   return (
     <Page>
       <Title>{lecture.title}</Title>
-      <Muted>
-        {lecture.subject} · {lecture.state}
-      </Muted>
+      <Muted>{lecture.subject}</Muted>
+      <StatusBadge
+        label={lecture.state}
+        tone={
+          lecture.state === 'FAILED'
+            ? 'danger'
+            : lecture.state === 'PUBLISHED'
+            ? 'success'
+            : lecture.state === 'PROCESSING'
+            ? 'warning'
+            : 'info'
+        }
+      />
       <ErrorText message={error || lecture.failure} />
       {staff && ['DRAFT', 'FAILED', 'READY'].includes(lecture.state) && (
         <Button
@@ -97,7 +114,10 @@ export default function LectureDetailScreen({ route }) {
             <Field
               label="Review summary"
               value={summary}
-              onChangeText={setSummary}
+              onChangeText={value => {
+                draftDirty.current = true;
+                setSummary(value);
+              }}
               multiline
             />
           ) : (
@@ -113,7 +133,10 @@ export default function LectureDetailScreen({ route }) {
             <Field
               label="Review homework"
               value={homework}
-              onChangeText={setHomework}
+              onChangeText={value => {
+                draftDirty.current = true;
+                setHomework(value);
+              }}
               multiline
             />
           ) : (

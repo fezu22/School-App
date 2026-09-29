@@ -84,21 +84,21 @@ test("seed is repeatable, complete, and has valid relationships and payment tota
 
 test("login works and roles cannot escape their assigned data", async () => {
   adminToken = await tokenFor("school-admin@example.com");
-  const anon = await request(app).get("/students");
+  const anon = await request(app).get("/staff/students");
   assert.equal(anon.status, 401);
   const principal = await tokenFor("principal.north@example.com");
-  const northStudents = await call(principal, "get", "/students");
+  const northStudents = await call(principal, "get", "/staff/students");
   assert.equal(northStudents.status, 200, northStudents.text);
   assert.equal(northStudents.body.items.length, 6);
-  const classes = await call(principal, "get", "/classes");
+  const classes = await call(principal, "get", "/staff/classes");
   assert.equal(classes.body.items.length, 2);
   const child = await tokenFor("student.ava@example.com");
-  const ownStudents = await call(child, "get", "/students");
+  const ownStudents = await call(child, "get", "/student/profile");
   assert.equal(ownStudents.body.items.length, 1);
-  const assignments = await call(child, "get", "/assignments");
+  const assignments = await call(child, "get", "/student/assignments");
   assert.equal(assignments.status, 200);
   assert.ok(assignments.body.items.every((item) => item.published));
-  const forbiddenAdmin = await call(child, "get", "/admin/users");
+  const forbiddenAdmin = await call(child, "get", "/staff/admin/users");
   assert.equal(forbiddenAdmin.status, 403);
   await tokenFor("teacher.science@example.com", 401);
   const mustChange = await tokenFor("accountant.south@example.com");

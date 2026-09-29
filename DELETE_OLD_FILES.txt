@@ -1,0 +1,19 @@
+Overlay zip use karne ke baad ye purani files delete kar dein (ab use nahi hoti):
+src/screens/RecordsScreen.jsx
+src/screens/AttendanceScreen.jsx
+src/screens/AssignmentsScreen.jsx
+src/screens/AssignmentDetailScreen.jsx
+src/screens/LecturesScreen.jsx
+src/screens/LectureDetailScreen.jsx
+src/screens/InvoiceDetailScreen.jsx
+src/screens/SettingsScreen.jsx
+src/screens/HomeScreen.jsx
+src/roles/homeForRole.js
+
+Backend (overlay use karein to ye purani files bhi delete karein):
+backend/src/routes/academics.js
+backend/src/routes/admin.js
+backend/src/routes/ai.js
+backend/src/routes/finance.js
+backend/src/routes/learning.js
+(backend/src/routes/auth.js rehne dein.)

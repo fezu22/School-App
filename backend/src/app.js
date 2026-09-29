@@ -1,13 +1,12 @@
-import { router as aiRouter } from "./routes/ai.js";
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import { ZodError } from "zod";
 import { router as authRouter } from "./routes/auth.js";
-import { router as adminRouter } from "./routes/admin.js";
-import { router as academicsRouter } from "./routes/academics.js";
-import { router as learningRouter } from "./routes/learning.js";
-import { router as financeRouter } from "./routes/finance.js";
+import { router as studentRouter } from "./roles/student/routes.js";
+import { router as parentRouter } from "./roles/parent/routes.js";
+import { router as financeRouter } from "./roles/finance/routes.js";
+import { router as staffRouter } from "./roles/staff/routes.js";
 import { auth, route, classFilter, studentFilter } from "./middleware/auth.js";
 import { Settings, SchoolClass, Student } from "./models/index.js";
 export const app = express();
@@ -43,11 +42,11 @@ app.get(
     })
   )
 );
-app.use("/lectures", aiRouter);
-app.use("/admin", adminRouter);
-app.use("/", academicsRouter);
-app.use("/assignments", learningRouter);
-app.use("/invoices", financeRouter);
+// One portal per role group. Each portal enforces its own role guard.
+app.use("/student", studentRouter);
+app.use("/parent", parentRouter);
+app.use("/finance", financeRouter);
+app.use("/staff", staffRouter);
 app.use((_req, res) => res.status(404).json({ error: "Endpoint not found" }));
 app.use((error, _req, res, _next) => {
   if (error instanceof ZodError)
