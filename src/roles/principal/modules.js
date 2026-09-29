@@ -1,11 +1,12 @@
 // Principal modules
 export const principalModules = [
-  ['AI learning', 'Lectures'],
   ['Classes', 'Classes'],
   ['Students', 'Students'],
+  ['Teachers', 'Teachers'],
   ['Attendance', 'Attendance'],
-  ['Assignments', 'Assignments'],
-  ['Timetable', 'Timetable'],
   ['Notices', 'Notices'],
+  ['Timetable', 'Timetable'],
+  ['Assignments', 'Assignments'],
+  ['Lectures', 'Lectures'],
   ['Fees & receipts', 'Invoices'],
 ];

@@ -4,10 +4,11 @@ export function setAccessToken(token) {
   accessToken = token;
 }
 export async function api(path, method = 'GET', body) {
+  const url = API_URL + path;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   try {
-    const res = await fetch(API_URL + path, {
+    const res = await fetch(url, {
       method,
       signal: controller.signal,
       headers: {
@@ -32,6 +33,8 @@ export async function api(path, method = 'GET', body) {
   } catch (e) {
     if (e.name === 'AbortError')
       throw Error('Request timed out. Check your connection.');
+    if (e instanceof TypeError && /network request failed/i.test(e.message))
+      throw Error(`Network request failed for ${url}. Check the API host and that the backend is running.`);
     throw e;
   } finally {
     clearTimeout(timer);

@@ -7,6 +7,7 @@ import {
   Notice,
   Timetable,
   Branch,
+  User,
 } from "../../models/index.js";
 import {
   allow,
@@ -22,6 +23,92 @@ import { id, text, date } from "../../config/validation.js";
 import { audit } from "../../services/audit.js";
 import { visibleNotices } from "../../services/notices.js";
 export const router = Router();
+router.get(
+  "/dashboard",
+  allow("SUPER_ADMIN", "PRINCIPAL"),
+  route(async (req, res) => {
+    const branchFilter =
+      req.user.role === "SUPER_ADMIN"
+        ? {}
+        : { branchId: { $in: req.user.branchIds } };
+
+    const [
+      students,
+      classes,
+      teachers,
+      attendance,
+      notices,
+    ] = await Promise.all([
+      Student.countDocuments(branchFilter),
+
+      SchoolClass.countDocuments(branchFilter),
+
+      User.countDocuments({
+        role: "TEACHER",
+        active: true,
+        ...(req.user.role === "SUPER_ADMIN"
+          ? {}
+          : { branchIds: { $in: req.user.branchIds } }),
+      }),
+
+      Attendance.aggregate([
+        { $match: branchFilter },
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+
+      Notice.find(branchFilter)
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select("title body classId createdAt"),
+    ]);
+
+    const attendanceSummary = {
+      present: 0,
+      absent: 0,
+      late: 0,
+      excused: 0,
+    };
+
+    for (const row of attendance) {
+      const key = row._id.toLowerCase();
+
+      if (key in attendanceSummary) {
+        attendanceSummary[key] = row.count;
+      }
+    }
+
+    res.json({
+      summary: {
+        students,
+        classes,
+        teachers,
+        attendance: attendanceSummary,
+      },
+      recentNotices: notices,
+    });
+  })
+);
+router.get(
+  "/teachers",
+  allow("SUPER_ADMIN", "PRINCIPAL"),
+  route(async (req, res) => {
+    const scope =
+      req.user.role === "SUPER_ADMIN"
+        ? {}
+        : { branchIds: { $in: req.user.branchIds } };
+    res.json({
+      items: await User.find({ role: "TEACHER", active: true, ...scope })
+        .select("name email")
+        .sort({ name: 1 })
+        .limit(500),
+    });
+  })
+);
 router.get(
   "/branches",
   route(async (req, res) =>

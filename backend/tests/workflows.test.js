@@ -12,6 +12,7 @@ let mongo,
   parent,
   student,
   other,
+  northPrincipal,
   b1,
   b2,
   c1,
@@ -102,6 +103,12 @@ test("account assignment is admin only", async () => {
     ["parent@test.invalid", "PARENT", { studentIds: [s1] }],
     ["student@test.invalid", "STUDENT", { studentIds: [s1] }],
     ["other@test.invalid", "PRINCIPAL", { branchIds: [b2] }],
+    ["north-principal@test.invalid", "PRINCIPAL", { branchIds: [b1] }],
+    [
+      "south-teacher@test.invalid",
+      "TEACHER",
+      { branchIds: [b2], classIds: [c2], subjectNames: ["Math"] },
+    ],
   ]) {
     const r = await call(admin, "post", "/staff/admin/users", {
       email,
@@ -117,7 +124,55 @@ test("account assignment is admin only", async () => {
   parent = await login("parent@test.invalid");
   student = await login("student@test.invalid");
   other = await login("other@test.invalid");
+  northPrincipal = await login("north-principal@test.invalid");
   assert.equal((await call(teacher, "post", "/staff/admin/users", {})).status, 403);
+});
+test("principal dashboard and teacher list stay in assigned branch", async () => {
+  const northDashboard = await call(northPrincipal, "get", "/staff/dashboard");
+  assert.equal(northDashboard.status, 200, northDashboard.text);
+  assert.deepEqual(northDashboard.body.summary, {
+    students: 1,
+    classes: 1,
+    teachers: 1,
+    attendance: { present: 0, absent: 0, late: 0, excused: 0 },
+  });
+  assert.deepEqual(
+    (await call(northPrincipal, "get", "/staff/students")).body.items.map(
+      (item) => item._id
+    ),
+    [s1]
+  );
+  assert.deepEqual(
+    (await call(northPrincipal, "get", "/staff/classes")).body.items.map(
+      (item) => item._id
+    ),
+    [c1]
+  );
+  assert.deepEqual(
+    (await call(northPrincipal, "get", "/staff/teachers")).body.items.map(
+      (item) => item.email
+    ),
+    ["teacher@test.invalid"]
+  );
+  assert.deepEqual(
+    (await call(northPrincipal, "get", "/staff/branches")).body.items.map(
+      (item) => item._id
+    ),
+    [b1]
+  );
+  assert.equal(
+    (
+      await call(northPrincipal, "post", "/staff/classes", {
+        name: "Out of scope",
+        section: "1",
+        session: "2026",
+        branchId: b2,
+      })
+    ).status,
+    403
+  );
+  assert.equal((await call(teacher, "get", "/staff/dashboard")).status, 403);
+  assert.equal((await call(teacher, "get", "/staff/teachers")).status, 403);
 });
 test("teacher guardian and branch isolation", async () => {
   assert.deepEqual(
@@ -153,9 +208,31 @@ test("attendance rejects wrong roster and scopes parent view", async () => {
   assert.equal((await call(teacher, "post", "/staff/attendance", body)).status, 400);
   body.entries[0].studentId = s1;
   assert.equal((await call(teacher, "post", "/staff/attendance", body)).status, 200);
+  assert.equal(
+    (
+      await call(admin, "post", "/staff/attendance", {
+        classId: c2,
+        date: "2026-09-25",
+        entries: [{ studentId: s2, status: "ABSENT" }],
+      })
+    ).status,
+    200
+  );
   const r = await call(parent, "get", "/parent/attendance");
   assert.equal(r.body.items.length, 1);
   assert.equal(r.body.items[0].studentId._id, s1);
+});
+test("dashboard attendance respects branch scope and super admin sees all", async () => {
+  const north = await call(northPrincipal, "get", "/staff/dashboard");
+  const south = await call(other, "get", "/staff/dashboard");
+  const all = await call(admin, "get", "/staff/dashboard");
+  assert.equal(north.body.summary.attendance.present, 1);
+  assert.equal(north.body.summary.attendance.absent, 0);
+  assert.equal(south.body.summary.attendance.absent, 1);
+  assert.equal(south.body.summary.attendance.present, 0);
+  assert.equal(all.body.summary.students, 2);
+  assert.equal(all.body.summary.classes, 2);
+  assert.equal(all.body.summary.teachers, 2);
 });
 test("draft publish submission grading workflow", async () => {
   let r = await call(teacher, "post", "/staff/assignments", {

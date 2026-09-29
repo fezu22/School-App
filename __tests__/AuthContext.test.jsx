@@ -2,6 +2,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { Text, Button } from 'react-native';
 import { AuthProvider, useAuth } from '../src/auth/AuthContext';
+import { api, setAccessToken } from '../src/api/client';
 
 jest.mock('react-native-keychain', () => ({
   getGenericPassword: jest.fn().mockResolvedValue(false),
@@ -35,6 +36,16 @@ function Probe() {
   );
 }
 
+function PrincipalLoginProbe() {
+  const { user, signIn } = useAuth();
+  return (
+    <>
+      <Text>{user ? user.role : 'Signed out'}</Text>
+      <Button title="SignInPrincipal" onPress={() => signIn('principal@school.test', 'correct-password')} />
+    </>
+  );
+}
+
 test('devSignIn sets user and signOut clears it', async () => {
   let root;
   await act(async () => {
@@ -61,4 +72,32 @@ test('devSignIn sets user and signOut clears it', async () => {
     signOutBtn.props.onPress();
   });
   expect(JSON.stringify(root.toJSON())).toContain('Login');
+});
+
+test('backend Principal sign-in stores the token and role', async () => {
+  api
+    .mockResolvedValueOnce({ schoolName: 'Test School' })
+    .mockResolvedValueOnce({
+      token: 'principal-jwt',
+      user: { name: 'Casey Principal', role: 'PRINCIPAL' },
+    });
+  let root;
+  await act(async () => {
+    root = TestRenderer.create(
+      <AuthProvider>
+        <PrincipalLoginProbe />
+      </AuthProvider>,
+    );
+  });
+  const signIn = root.root.findByProps({ title: 'SignInPrincipal' });
+  await act(async () => {
+    await signIn.props.onPress();
+  });
+
+  expect(api).toHaveBeenCalledWith('/auth/login', 'POST', {
+    email: 'principal@school.test',
+    password: 'correct-password',
+  });
+  expect(setAccessToken).toHaveBeenCalledWith('principal-jwt');
+  expect(JSON.stringify(root.toJSON())).toContain('PRINCIPAL');
 });

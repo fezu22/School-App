@@ -5,7 +5,7 @@ import { api, setAccessToken } from '../api/client';
 const Context = createContext(null);
 const service = 'school-platform-session';
 
-// Dev mock users for quick role switching (no backend login required)
+// Role previews are for UI navigation only and cannot access protected APIs.
 const DEV_USERS = {
   STUDENT: { id: 'dev-student', name: 'Ava Student', role: 'STUDENT', mustChangePassword: false },
   PARENT: { id: 'dev-parent', name: 'Sam Lee', role: 'PARENT', mustChangePassword: false },
@@ -36,7 +36,6 @@ export function AuthProvider({ children }) {
     })();
   }, []);
 
-  // Real login kept for later; not used while role picker is active
   async function signIn(email, password) {
     const data = await api('/auth/login', 'POST', { email, password });
     await Keychain.setGenericPassword('session', data.token, { service });
