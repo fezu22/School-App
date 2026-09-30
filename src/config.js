@@ -1,13 +1,10 @@
-import { NativeModules } from 'react-native';
+/* global globalThis */
+const productionApiUrl = globalThis.process?.env?.SCHOOL_API_URL;
 
-const metroURL = NativeModules.SourceCode?.scriptURL || '';
-const metroHost = metroURL.match(/^https?:\/\/([^/:?#]+)/)?.[1];
-const apiHost =
-	metroHost && !['localhost', '127.0.0.1', '0.0.0.0'].includes(metroHost)
-		? metroHost
-		: 'localhost';
+if (!__DEV__ && !productionApiUrl) {
+	throw new Error('SCHOOL_API_URL must be configured for production builds.');
+}
 
-// Use the Metro host during local development; production needs its HTTPS API URL.
 export const API_URL = __DEV__
-	? `http://${apiHost}:4000`
-	: 'http://localhost:4000';
+	? 'http://192.168.1.26:4000'
+	: productionApiUrl;
