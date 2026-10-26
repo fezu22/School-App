@@ -1,0 +1,40 @@
+// Explicit development design data; never persisted or used in real checkout.
+export const paymentDesignInvoices = [
+  {
+    id: "DESIGN-INV-A",
+    childId: "DESIGN-A",
+    childName: "Ahmed Khan",
+    classLabel: "Class 9-A",
+    invoiceNumber: "INV-2026-10-002",
+    period: "October 2026",
+    currency: "PKR",
+    amount: 6500,
+    paidAmount: 1500,
+    pendingAmount: 0,
+    balanceDue: 5000,
+    availableBalance: 5000,
+    lineItems: [
+      { label: "Monthly tuition", amount: 5000 },
+      { label: "Exam / paper fee", amount: 500 },
+      { label: "Transport", amount: 1000 },
+    ],
+  },
+  {
+    id: "DESIGN-INV-S",
+    childId: "DESIGN-S",
+    childName: "Sara Khan",
+    classLabel: "Class 3-B",
+    invoiceNumber: "INV-2026-10-003",
+    period: "October 2026",
+    currency: "PKR",
+    amount: 4000,
+    paidAmount: 0,
+    pendingAmount: 0,
+    balanceDue: 4000,
+    availableBalance: 4000,
+    lineItems: [
+      { label: "Monthly tuition", amount: 3500 },
+      { label: "Exam / paper fee", amount: 500 },
+    ],
+  },
+];

@@ -1,1 +1,9 @@
-module.exports = {root: true, extends: '@react-native', overrides:[{files:['**/__tests__/**/*.jsx'],env:{jest:true}}]};
+module.exports = {
+  root: true,
+  ignorePatterns: ['build/**', 'backend/dist/**'],
+  extends: '@react-native',
+  globals: {
+    Buffer: 'readonly',
+    globalThis: 'readonly',
+  },
+};

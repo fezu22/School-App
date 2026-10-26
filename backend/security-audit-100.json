@@ -1,0 +1,802 @@
+[
+  {
+    "id": "SEC-001",
+    "category": "Authentication and input",
+    "scenario": "missing bearer cannot open a protected user profile",
+    "title": "AUDIT-NEW-01: missing bearer cannot open a protected user profile",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-002",
+    "category": "Authentication and input",
+    "scenario": "fabricated opaque bearer cannot authenticate",
+    "title": "AUDIT-NEW-02: fabricated opaque bearer cannot authenticate",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-003",
+    "category": "Authentication and input",
+    "scenario": "expired access session cannot open a profile",
+    "title": "AUDIT-NEW-03: expired access session cannot open a profile",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-004",
+    "category": "Authentication and input",
+    "scenario": "revoked access session cannot open a profile",
+    "title": "AUDIT-NEW-04: revoked access session cannot open a profile",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-005",
+    "category": "Authentication and input",
+    "scenario": "legacy account disable immediately removes access",
+    "title": "AUDIT-NEW-05: legacy account disable immediately removes access",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-006",
+    "category": "Authentication and input",
+    "scenario": "staff account disable immediately removes access",
+    "title": "AUDIT-NEW-06: staff account disable immediately removes access",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-007",
+    "category": "Authentication and input",
+    "scenario": "login body cannot promote a Student to Super Admin",
+    "title": "AUDIT-NEW-07: login body cannot promote a Student to Super Admin",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-008",
+    "category": "Authentication and input",
+    "scenario": "object-shaped email cannot inject a MongoDB login selector",
+    "title": "AUDIT-NEW-08: object-shaped email cannot inject a MongoDB login selector",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-009",
+    "category": "Authentication and input",
+    "scenario": "object-shaped password cannot bypass verification",
+    "title": "AUDIT-NEW-09: object-shaped password cannot bypass verification",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-010",
+    "category": "Authentication and input",
+    "scenario": "oversized password is rejected before database or password work",
+    "title": "AUDIT-NEW-10: oversized password is rejected before database or password work",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-011",
+    "category": "Authentication and input",
+    "scenario": "repeated wrong passwords are throttled for one account",
+    "title": "AUDIT-NEW-11: repeated wrong passwords are throttled for one account",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-012",
+    "category": "Authentication and input",
+    "scenario": "forged forwarding headers cannot bypass source throttling",
+    "title": "AUDIT-NEW-12: forged forwarding headers cannot bypass source throttling",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-013",
+    "category": "Authentication and input",
+    "scenario": "malformed JSON returns sanitized 400 rather than server failure",
+    "title": "AUDIT-NEW-13: malformed JSON returns sanitized 400 rather than server failure",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-014",
+    "category": "Authentication and input",
+    "scenario": "oversized JSON returns bounded 413 rather than server failure",
+    "title": "AUDIT-NEW-14: oversized JSON returns bounded 413 rather than server failure",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-015",
+    "category": "School isolation",
+    "scenario": "school administrator cannot list another school branches",
+    "title": "AUDIT-NEW-15: school administrator cannot list another school branches",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-016",
+    "category": "School isolation",
+    "scenario": "foreign school branch ID is concealed like a missing branch",
+    "title": "AUDIT-NEW-16: foreign school branch ID is concealed like a missing branch",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-017",
+    "category": "School isolation",
+    "scenario": "forged school ownership cannot redirect branch creation",
+    "title": "AUDIT-NEW-17: forged school ownership cannot redirect branch creation",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-018",
+    "category": "School isolation",
+    "scenario": "query-string school override cannot widen branch directory",
+    "title": "AUDIT-NEW-18: query-string school override cannot widen branch directory",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-019",
+    "category": "School isolation",
+    "scenario": "malformed branch ID returns sanitized 400",
+    "title": "AUDIT-NEW-19: malformed branch ID returns sanitized 400",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-020",
+    "category": "School isolation",
+    "scenario": "invalid branch fields cannot expose internal exception details",
+    "title": "AUDIT-NEW-20: invalid branch fields cannot expose internal exception details",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-021",
+    "category": "School isolation",
+    "scenario": "unmapped administrator cannot fall back to a global branch list",
+    "title": "AUDIT-NEW-21: unmapped administrator cannot fall back to a global branch list",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-022",
+    "category": "School isolation",
+    "scenario": "school suspension invalidates existing bearer access",
+    "title": "AUDIT-NEW-22: school suspension invalidates existing bearer access",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-023",
+    "category": "School isolation",
+    "scenario": "deleted mapped school cannot retain authenticated access",
+    "title": "AUDIT-NEW-23: deleted mapped school cannot retain authenticated access",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-024",
+    "category": "School isolation",
+    "scenario": "account and branch school mismatch cannot authenticate",
+    "title": "AUDIT-NEW-24: account and branch school mismatch cannot authenticate",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-025",
+    "category": "School isolation",
+    "scenario": "inactive mapped branch immediately removes access",
+    "title": "AUDIT-NEW-25: inactive mapped branch immediately removes access",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-026",
+    "category": "School isolation",
+    "scenario": "teacher-provisioning branch selector cannot reveal another school",
+    "title": "AUDIT-NEW-26: teacher-provisioning branch selector cannot reveal another school",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-027",
+    "category": "School isolation",
+    "scenario": "suspended school cannot obtain a scoped database",
+    "title": "AUDIT-NEW-27: suspended school cannot obtain a scoped database",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Service boundary with owned replica-set fixtures"
+  },
+  {
+    "id": "SEC-028",
+    "category": "School isolation",
+    "scenario": "OR filter cannot escape the school predicate in real MongoDB",
+    "title": "AUDIT-NEW-28: OR filter cannot escape the school predicate in real MongoDB",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Service boundary with owned replica-set fixtures"
+  },
+  {
+    "id": "SEC-029",
+    "category": "School isolation",
+    "scenario": "cross-school insert is rejected before persistence",
+    "title": "AUDIT-NEW-29: cross-school insert is rejected before persistence",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Service boundary with owned replica-set fixtures"
+  },
+  {
+    "id": "SEC-030",
+    "category": "School isolation",
+    "scenario": "replacement cannot change school ownership",
+    "title": "AUDIT-NEW-30: replacement cannot change school ownership",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Service boundary with owned replica-set fixtures"
+  },
+  {
+    "id": "SEC-031",
+    "category": "School isolation",
+    "scenario": "bulk operation cannot change school ownership",
+    "title": "AUDIT-NEW-31: bulk operation cannot change school ownership",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Service boundary with owned replica-set fixtures"
+  },
+  {
+    "id": "SEC-032",
+    "category": "School isolation",
+    "scenario": "aggregate lookup cannot escape into another school collection",
+    "title": "AUDIT-NEW-32: aggregate lookup cannot escape into another school collection",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Service boundary with owned replica-set fixtures"
+  },
+  {
+    "id": "SEC-033",
+    "category": "School isolation",
+    "scenario": "executable MongoDB expressions are rejected",
+    "title": "AUDIT-NEW-33: executable MongoDB expressions are rejected",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Service boundary with owned replica-set fixtures"
+  },
+  {
+    "id": "SEC-034",
+    "category": "Role and feature gates",
+    "scenario": "anonymous Parent data access is denied",
+    "title": "AUDIT-NEW-34: anonymous Parent data access is denied",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-035",
+    "category": "Role and feature gates",
+    "scenario": "Teacher cannot enter school administrator dashboard",
+    "title": "AUDIT-NEW-35: Teacher cannot enter school administrator dashboard",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-036",
+    "category": "Role and feature gates",
+    "scenario": "Student cannot open Finance summary",
+    "title": "AUDIT-NEW-36: Student cannot open Finance summary",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-037",
+    "category": "Role and feature gates",
+    "scenario": "live classroom remains unavailable without verified integration",
+    "title": "AUDIT-NEW-37: live classroom remains unavailable without verified integration",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-038",
+    "category": "Role and feature gates",
+    "scenario": "legacy student directory retains bearer authentication",
+    "title": "AUDIT-NEW-38: legacy student directory retains bearer authentication",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-039",
+    "category": "Role and feature gates",
+    "scenario": "obsolete administrator JWT session API remains unavailable",
+    "title": "AUDIT-NEW-39: obsolete administrator JWT session API remains unavailable",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-040",
+    "category": "Role and feature gates",
+    "scenario": "anonymous paper PDF download cannot bypass authentication",
+    "title": "AUDIT-NEW-40: anonymous paper PDF download cannot bypass authentication",
+    "file": "staff-tests/security-audit-new.security.test.js",
+    "evidence": "Production HTTP against owned replica set"
+  },
+  {
+    "id": "SEC-041",
+    "category": "Authentication",
+    "scenario": "bearer enforcement, expiry and logout revocation",
+    "title": "bearer enforcement, expiry and logout revocation",
+    "file": "src/auth.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-042",
+    "category": "Authentication",
+    "scenario": "both account disable flags reject an existing session",
+    "title": "both account disable flags reject an existing session",
+    "file": "src/auth.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-043",
+    "category": "Authentication",
+    "scenario": "login rejects disabled, malformed and unlinked accounts before issuing sessions",
+    "title": "login rejects disabled, malformed and unlinked accounts before issuing sessions",
+    "file": "src/auth.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-044",
+    "category": "Authentication",
+    "scenario": "partner bcrypt accounts receive hashed opaque sessions and canonical ObjectId identity",
+    "title": "partner bcrypt accounts receive hashed opaque sessions and canonical ObjectId identity",
+    "file": "src/auth.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-045",
+    "category": "Authentication",
+    "scenario": "ambiguous email and identity matches fail closed",
+    "title": "ambiguous email and identity matches fail closed",
+    "file": "src/auth.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-046",
+    "category": "Chat and attachments",
+    "scenario": "chat scopes authorized teacher selection to owned or verified children",
+    "title": "chat scopes authorized teacher selection to owned or verified children",
+    "file": "src/chatRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-047",
+    "category": "Chat and attachments",
+    "scenario": "chat fails closed when trusted user branch is missing or differs from the student",
+    "title": "chat fails closed when trusted user branch is missing or differs from the student",
+    "file": "src/chatRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-048",
+    "category": "Chat and attachments",
+    "scenario": "chat requires matching student, assignment and teacher branch IDs",
+    "title": "chat requires matching student, assignment and teacher branch IDs",
+    "file": "src/chatRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-049",
+    "category": "Chat and attachments",
+    "scenario": "chat persists messages, returns history, deduplicates retries and records read receipts",
+    "title": "chat persists messages, returns history, deduplicates retries and records read receipts",
+    "file": "src/chatRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-050",
+    "category": "Chat and attachments",
+    "scenario": "revoked parent links and teacher assignments immediately deny chat history",
+    "title": "revoked parent links and teacher assignments immediately deny chat history",
+    "file": "src/chatRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-051",
+    "category": "Chat and attachments",
+    "scenario": "chat accepts only size-bounded images and protects attachment access by conversation",
+    "title": "chat accepts only size-bounded images and protects attachment access by conversation",
+    "file": "src/chatRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-052",
+    "category": "Chat and attachments",
+    "scenario": "WebSocket sessions are short-lived, one-use and tied to the live access session",
+    "title": "WebSocket sessions are short-lived, one-use and tied to the live access session",
+    "file": "src/chatRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-053",
+    "category": "Chat and attachments",
+    "scenario": "integrated chat uses current partner assignments and ObjectId branch/section scope",
+    "title": "integrated chat uses current partner assignments and ObjectId branch/section scope",
+    "file": "src/chatRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-054",
+    "category": "Exam papers and PDF",
+    "scenario": "paper limits, exact marks, unknown scripts and template bounds are validated",
+    "title": "paper limits, exact marks, unknown scripts and template bounds are validated",
+    "file": "src/examPapers.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-055",
+    "category": "Exam papers and PDF",
+    "scenario": "role, school, branch and template substitution cannot cross ownership",
+    "title": "role, school, branch and template substitution cannot cross ownership",
+    "file": "src/examPapers.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-056",
+    "category": "Exam papers and PDF",
+    "scenario": "teachers must hold an active current assignment, including when opening old drafts",
+    "title": "teachers must hold an active current assignment, including when opening old drafts",
+    "file": "src/examPapers.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-057",
+    "category": "Exam papers and PDF",
+    "scenario": "long papers generate multiple PDF pages with bounded template settings",
+    "title": "long papers generate multiple PDF pages with bounded template settings",
+    "file": "src/examPapers.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-058",
+    "category": "Parent ownership",
+    "scenario": "verified link filters bind both parent and child and exclude revocations",
+    "title": "verified link filters bind both parent and child and exclude revocations",
+    "file": "src/parentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-059",
+    "category": "Parent ownership",
+    "scenario": "listing children ignores unrelated broken Parent links without widening ownership",
+    "title": "listing children ignores unrelated broken Parent links without widening ownership",
+    "file": "src/parentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-060",
+    "category": "Parent ownership",
+    "scenario": "another parent cannot resolve a child they are not linked to",
+    "title": "another parent cannot resolve a child they are not linked to",
+    "file": "src/parentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-061",
+    "category": "Parent ownership",
+    "scenario": "a broken parent reference returns an integration error and denies the child",
+    "title": "a broken parent reference returns an integration error and denies the child",
+    "file": "src/parentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-062",
+    "category": "Parent ownership",
+    "scenario": "revoked and unverified links cannot resolve a child",
+    "title": "revoked and unverified links cannot resolve a child",
+    "file": "src/parentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-063",
+    "category": "Parent ownership",
+    "scenario": "revoked status wins over a stale legacy verified flag",
+    "title": "revoked status wins over a stale legacy verified flag",
+    "file": "src/parentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-064",
+    "category": "Parent ownership",
+    "scenario": "child record filters cannot be redirected to another student",
+    "title": "child record filters cannot be redirected to another student",
+    "file": "src/parentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-065",
+    "category": "Parent ownership",
+    "scenario": "non-parent roles cannot enter Parent routes",
+    "title": "non-parent roles cannot enter Parent routes",
+    "file": "src/parentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-066",
+    "category": "Payment integrity",
+    "scenario": "concurrent Parents and Finance share one invoice balance reservation",
+    "title": "concurrent Parents and Finance share one invoice balance reservation",
+    "file": "src/invoiceReservations.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-067",
+    "category": "Payment integrity",
+    "scenario": "expired and uncertain checkouts stay reserved until authoritative terminal status",
+    "title": "expired and uncertain checkouts stay reserved until authoritative terminal status",
+    "file": "src/invoiceReservations.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-068",
+    "category": "Payment integrity",
+    "scenario": "settlement requires exact invoice, student, branch, currency and a non-overpaid balance",
+    "title": "settlement requires exact invoice, student, branch, currency and a non-overpaid balance",
+    "file": "src/invoiceReservations.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-069",
+    "category": "Payment integrity",
+    "scenario": "already-paid invoices are reconciliation cases, not receipt-issuing settlements",
+    "title": "already-paid invoices are reconciliation cases, not receipt-issuing settlements",
+    "file": "src/invoiceReservations.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-070",
+    "category": "Finance authorization",
+    "scenario": "Finance context requires persisted Finance identity and a resolvable branch",
+    "title": "Finance context requires persisted Finance identity and a resolvable branch",
+    "file": "src/financeRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-071",
+    "category": "Finance authorization",
+    "scenario": "Finance list filters reject invalid dates, methods, and oversized student IDs",
+    "title": "Finance list filters reject invalid dates, methods, and oversized student IDs",
+    "file": "src/financeRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-072",
+    "category": "Finance authorization",
+    "scenario": "payment history filters retain branch, status, student, dates, and method",
+    "title": "payment history filters retain branch, status, student, dates, and method",
+    "file": "src/financeRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-073",
+    "category": "Finance authorization",
+    "scenario": "traceable non-cash payment methods require a transaction reference",
+    "title": "traceable non-cash payment methods require a transaction reference",
+    "file": "src/financeRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-074",
+    "category": "Finance authorization",
+    "scenario": "rejecting a partial payment releases only that pending reservation",
+    "title": "rejecting a partial payment releases only that pending reservation",
+    "file": "src/financeRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-075",
+    "category": "Finance authorization",
+    "scenario": "payment indexes protect idempotency per actor and references per branch",
+    "title": "payment indexes protect idempotency per actor and references per branch",
+    "file": "src/financeRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-076",
+    "category": "Student ownership and files",
+    "scenario": "student context is resolved only from the authenticated user id",
+    "title": "student context is resolved only from the authenticated user id",
+    "file": "src/studentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-077",
+    "category": "Student ownership and files",
+    "scenario": "another role cannot enter Student routes",
+    "title": "another role cannot enter Student routes",
+    "file": "src/studentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-078",
+    "category": "Student ownership and files",
+    "scenario": "an unlinked Student account is rejected",
+    "title": "an unlinked Student account is rejected",
+    "file": "src/studentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-079",
+    "category": "Student ownership and files",
+    "scenario": "owned record filters cannot be redirected to another student",
+    "title": "owned record filters cannot be redirected to another student",
+    "file": "src/studentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-080",
+    "category": "Student ownership and files",
+    "scenario": "homework file validation accepts matching signatures only",
+    "title": "homework file validation accepts matching signatures only",
+    "file": "src/studentRoutes.node-test.js",
+    "evidence": "Fixture/local HTTP regression with mocked persistence"
+  },
+  {
+    "id": "SEC-081",
+    "category": "Teacher scope",
+    "scenario": "same-branch, foreign and missing class objects are indistinguishable concealed 404s without prior list access",
+    "title": "same-branch, foreign and missing class objects are indistinguishable concealed 404s without prior list access",
+    "file": "staff-tests/teacher-scope.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-082",
+    "category": "Teacher scope",
+    "scenario": "tuple integrity rejects class/subject cross-products and section mismatches",
+    "title": "tuple integrity rejects class/subject cross-products and section mismatches",
+    "file": "staff-tests/teacher-scope.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-083",
+    "category": "Teacher scope",
+    "scenario": "branch reassignment after login removes old scope; missing/inactive branch fails closed",
+    "title": "branch reassignment after login removes old scope; missing/inactive branch fails closed",
+    "file": "staff-tests/teacher-scope.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-084",
+    "category": "Teacher scope",
+    "scenario": "section reparenting cannot preserve a stale class tuple",
+    "title": "section reparenting cannot preserve a stale class tuple",
+    "file": "staff-tests/teacher-scope.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-085",
+    "category": "Teacher scope",
+    "scenario": "strict query/body contracts reject every attempted scope override",
+    "title": "strict query/body contracts reject every attempted scope override",
+    "file": "staff-tests/teacher-scope.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-086",
+    "category": "Teacher scope",
+    "scenario": "malformed IDs return sanitized 400; valid unknown assignment IDs are concealed",
+    "title": "malformed IDs return sanitized 400; valid unknown assignment IDs are concealed",
+    "file": "staff-tests/teacher-scope.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-087",
+    "category": "Teacher scope",
+    "scenario": "role and permission gates remain independent and current",
+    "title": "role and permission gates remain independent and current",
+    "file": "staff-tests/teacher-scope.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-088",
+    "category": "Teacher scope",
+    "scenario": "a mistakenly broadened permission never bypasses the explicit role gate",
+    "title": "a mistakenly broadened permission never bypasses the explicit role gate",
+    "file": "staff-tests/teacher-scope.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-089",
+    "category": "Principal authorization",
+    "scenario": "students, teachers and Super Admins cannot use Principal-only endpoints",
+    "title": "students, teachers and Super Admins cannot use Principal-only endpoints",
+    "file": "staff-tests/principal-authorization.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-090",
+    "category": "Principal authorization",
+    "scenario": "missing branch assignment fails closed on every Principal endpoint",
+    "title": "missing branch assignment fails closed on every Principal endpoint",
+    "file": "staff-tests/principal-authorization.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-091",
+    "category": "Principal authorization",
+    "scenario": "foreign branch query cannot widen any read family",
+    "title": "foreign branch query cannot widen any read family",
+    "file": "staff-tests/principal-authorization.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-092",
+    "category": "Principal authorization",
+    "scenario": "mutation body scope/actor overrides are rejected without state changes",
+    "title": "mutation body scope/actor overrides are rejected without state changes",
+    "file": "staff-tests/principal-authorization.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-093",
+    "category": "Principal authorization",
+    "scenario": "foreign branch query cannot redirect valid task, safety or approval writes",
+    "title": "foreign branch query cannot redirect valid task, safety or approval writes",
+    "file": "staff-tests/principal-authorization.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-094",
+    "category": "Principal authorization",
+    "scenario": "all object IDOR lookups/mutations conceal foreign records like missing records",
+    "title": "all object IDOR lookups/mutations conceal foreign records like missing records",
+    "file": "staff-tests/principal-authorization.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-095",
+    "category": "Principal authorization",
+    "scenario": "invalid object IDs fail with sanitized 400 responses",
+    "title": "invalid object IDs fail with sanitized 400 responses",
+    "file": "staff-tests/principal-authorization.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-096",
+    "category": "Principal authorization",
+    "scenario": "dashboard isolates all aggregate families and ignores a spoofed GET JSON body",
+    "title": "dashboard isolates all aggregate families and ignores a spoofed GET JSON body",
+    "file": "staff-tests/principal-authorization.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-097",
+    "category": "Admission integrity",
+    "scenario": "Section from another Class is denied",
+    "title": "Section from another Class is denied",
+    "file": "staff-tests/student-admission.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-098",
+    "category": "Admission integrity",
+    "scenario": "inactive Period is denied",
+    "title": "inactive Period is denied",
+    "file": "staff-tests/student-admission.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-099",
+    "category": "Admission integrity",
+    "scenario": "foreign Class is denied",
+    "title": "foreign Class is denied",
+    "file": "staff-tests/student-admission.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  },
+  {
+    "id": "SEC-100",
+    "category": "Admission integrity",
+    "scenario": "anonymous and non-Principal admission denied",
+    "title": "anonymous and non-Principal admission denied",
+    "file": "staff-tests/student-admission.security.test.ts",
+    "evidence": "Owned replica-set HTTP/service security test"
+  }
+]

@@ -1,0 +1,14 @@
+import {apiClient} from '../api/apiClient';
+export interface Enrollment {id: string; period: {id: string; name: string; code: string; status: string}; class: {id: string; name: string; code: string}; section: {id: string; name: string; code: string}; status: string; revision: number; effectiveFrom: string; effectiveTo: string | null; reason: string; closedReason: string | null}
+export interface EnrollmentStudent {id: string; fullName: string; admissionNumber: string; legacy: boolean; current: Enrollment | null}
+export type EnrollmentAction = 'enroll' | 'transfer' | 'promote' | 'withdraw';
+export interface EnrollmentDetail {student: {id: string; fullName: string; admissionNumber: string; isActive: boolean}; current: Enrollment | null; legacy: boolean; legacyPlacement?: {className: string; sectionName: string; periodName: string | null} | null; history: Enrollment[]; nextOffset: number | null; actions: Record<EnrollmentAction, boolean>}
+export interface EnrollmentOptions {period: {id: string; name: string; code: string} | null; classes: {id: string; name: string; code: string}[]; sections: {id: string; name: string; code: string}[]; nextOffset: number | null}
+function query(values: Record<string, unknown>) {const items = Object.entries(values).filter(([,v]) => v !== undefined && v !== '').map(([k,v]) => encodeURIComponent(k) + '=' + encodeURIComponent(String(v))); return items.length ? '?' + items.join('&') : '';}
+async function request<T>(token: string, path: string, body?: unknown): Promise<T> {const response = await apiClient.request<{success: boolean; data: T}>(path, {token, method: body ? 'POST' : 'GET', ...(body ? {body} : {})}); if (!response.success || !response.data) throw new Error('The server did not confirm this enrollment operation. Refresh and retry.'); return response.data;}
+export const enrollmentService = {
+  list: (token: string, search = '', status = '', offset = 0, branchId?: string) => request<{items: EnrollmentStudent[]; total: number; nextOffset: number | null}>(token, '/staff-students' + query({branchId, search, status, offset})),
+  detail: (token: string, id: string, offset = 0, branchId?: string) => request<EnrollmentDetail>(token, '/staff-students/' + encodeURIComponent(id) + '/enrollments' + query({branchId, offset})),
+  options: (token: string, classId?: string, offset = 0, branchId?: string) => request<EnrollmentOptions>(token, '/staff-students/enrollment-options' + query({branchId, classId, offset})),
+  mutate: (token: string, studentId: string, action: EnrollmentAction, current: Enrollment | null, body: Record<string, unknown>, branchId?: string) => request<{enrollment: Enrollment; action: EnrollmentAction}>(token, '/staff-students/' + encodeURIComponent(studentId) + '/enrollments' + (action === 'enroll' ? '' : '/' + encodeURIComponent(current!.id) + '/' + action) + query({branchId}), {...body, ...(action === 'enroll' ? {} : {revision: current!.revision})}),
+};

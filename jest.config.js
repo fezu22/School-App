@@ -1,1 +1,13 @@
-module.exports = {preset:'react-native',roots:['<rootDir>/__tests__'],testTimeout:15000,transform:{'^.+\\.(js|jsx|ts|tsx)$':'babel-jest'}};
+const reactNativePreset = require('@react-native/jest-preset');
+
+module.exports = {
+  ...reactNativePreset,
+  transform: {
+    ...reactNativePreset.transform,
+    '^.+\\.(js|jsx|ts|tsx)$': 'babel-jest',
+  },
+  transformIgnorePatterns: [
+    'node_modules/(?!((@)?react-native|@react-native(-community)?|@react-navigation|@react-native-documents)/)',
+  ],
+  testPathIgnorePatterns: ['/node_modules/', '/build/local-backups/', '/backend/'],
+};

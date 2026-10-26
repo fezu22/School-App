@@ -1,0 +1,31 @@
+const {readFileSync, readdirSync, mkdirSync, writeFileSync} = require('node:fs');
+const {resolve, relative} = require('node:path');
+const {pathToFileURL} = require('node:url');
+const {spawnSync} = require('node:child_process');
+const {createHash} = require('node:crypto');
+const root = resolve(__dirname, '..');
+const directory = resolve(root, 'staff-tests');
+const js = new Set(['security-audit-new.security.test.js', 'deep-chat.security.test.js']);
+const files = readdirSync(directory).filter(name => name.endsWith('.security.test.ts') || js.has(name) || name === 'zego-room-control.test.ts').sort();
+for (const file of files) {
+  const text = readFileSync(resolve(directory, file), 'utf8');
+  if (/^\s*import\s+['"]dotenv\/config['"]/m.test(text)) throw new Error('Configured-database test forbidden: ' + file);
+}
+const tracked = ['src/auth.js', 'src/chatRoutes.js', 'src/chatRealtime.js'];
+const snapshot = () => Object.fromEntries(tracked.map(file => [file, createHash('sha256').update(readFileSync(resolve(root, file))).digest('hex')]));
+const before = snapshot();
+const output = resolve(root, '../build/deep-testing'); mkdirSync(output, {recursive: true});
+const events = resolve(output, 'events.jsonl');
+const env = {...process.env, MONGODB_URI: 'mongodb://127.0.0.1:1/DO_NOT_USE', MONGODB_DB: 'DO_NOT_USE', DOTENV_CONFIG_PATH: resolve(root, '.disabled-deep-test-env'), ONLINE_PAYMENTS_VERIFIED: 'false', LIVE_LESSONS_VERIFIED: 'false', LIVE_LESSON_ENABLED: 'false'};
+delete env.INTEGRATED_STAFF_ENABLED;
+const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', '--test-timeout=300000', '--test-reporter=' + pathToFileURL(resolve(__dirname, 'deep-test-reporter.js')).href, '--test-reporter-destination=' + events, ...files.map(file => resolve(directory, file))], {cwd: root, env, stdio: 'inherit'});
+const records = readFileSync(events, 'utf8').split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+const cases = records.filter(row => ['test:pass', 'test:fail'].includes(row.type) && !row.skip).map((row, index) => ({id: 'FULL-' + String(index + 1).padStart(4, '0'), name: row.name, file: row.file ? relative(root, row.file).replaceAll('\\', '/') : null, line: row.line, status: row.type === 'test:pass' ? 'PASS' : 'FAIL', durationMs: row.details?.duration_ms, error: row.details?.error}));
+const sourceStable = JSON.stringify(before) === JSON.stringify(snapshot());
+const skipped = records.filter(row => row.skip).length;
+const pass = cases.filter(row => row.status === 'PASS').length, fail = cases.length - pass;
+const summary = {total: cases.length, pass, fail, skipped, processExitCode: result.status, sourceStable, sourceHashes: before, files, cases};
+writeFileSync(resolve(output, 'results.json'), JSON.stringify(summary, null, 2));
+writeFileSync(resolve(output, 'results.csv'), 'ID,Status,Test,File,Line,Milliseconds\n' + cases.map(row => [row.id, row.status, row.name, row.file || '', String(row.line || ''), String(row.durationMs || '')].map(value => '"' + value.replaceAll('"', '""') + '"').join(',')).join('\n') + '\n');
+console.log(JSON.stringify({total: cases.length, pass, fail, skipped, processExitCode: result.status, sourceStable}));
+process.exitCode = result.status === 0 && fail === 0 && skipped === 0 && sourceStable && cases.length > 1000 ? 0 : 1;
