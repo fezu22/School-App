@@ -87,3 +87,11 @@ yarn-error.log
 *.apk
 *.aab
 *.bak
+
+# Local screenshots and accidental shell output
+/*.png
+/Task
+/adb
+/git
+/yarn
+/backend/scripts/*-before-*.json
