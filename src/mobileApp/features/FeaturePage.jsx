@@ -292,6 +292,10 @@ export default function FeaturePage({
     };
   }, [load]);
   useEffect(() => {
+    if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
+      appear.setValue(1);
+      return undefined;
+    }
     let alive = true;
     AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
       if (alive)

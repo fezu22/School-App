@@ -36,6 +36,7 @@ function publicIdentity(user) {
 
 function safeUser(user) {
   return { id: publicIdentity(user), role: String(user.role).toLowerCase(),
+    ...(user.schoolId ? { schoolId: String(user.schoolId) } : {}),
     branchId: user.branchId ? String(user.branchId) : undefined,
     fullName: user.fullName || user.name || '', email: user.email };
 }
@@ -50,14 +51,39 @@ async function findIdentity(reference, db = getDatabase()) {
 }
 
 async function schoolAvailability(user, database) {
-  // Legacy single-school accounts keep their existing identity contract.
-  // Mapped accounts must never silently lose their tenant checks.
-  if (user.schoolId == null || user.schoolId === '') return null;
-  const {schoolObjectId} = require('./schoolDatabase');
+  const role = typeof user?.role === 'string' ? user.role.trim().toLowerCase() : '';
+  const { isLegacySingleSchoolMode } = require('./schoolAccess');
+  const { schoolObjectId } = require('./schoolDatabase');
+  const db = database || getDatabase();
+  if (user.schoolId == null || user.schoolId === '') {
+    if (role === 'ultra_admin') return null;
+    if (!isLegacySingleSchoolMode()) {
+      return { status: 503, error: 'Account school mapping is unavailable.' };
+    }
+    if (user.branchId) {
+      let branchId;
+      try { branchId = schoolObjectId(user.branchId); }
+      catch { return { status: 503, error: 'Account branch mapping is unavailable.' }; }
+      const branch = await db.collection('branches').findOne({ _id: branchId });
+      if (!branch) return { status: 503, error: 'Account branch mapping is unavailable.' };
+      if (branch.schoolId != null && branch.schoolId !== '') {
+        return { status: 403, error: 'Account and branch school scope do not match.' };
+      }
+      if (branch.active === false || branch.isActive === false) {
+        return { status: 403, error: 'Branch access is disabled.' };
+      }
+    }
+    return null;
+  }
+  if (role === 'ultra_admin') {
+    return { status: 403, error: 'Platform authority cannot be scoped to a school account.' };
+  }
+  if (isLegacySingleSchoolMode()) {
+    return { status: 503, error: 'SaaS school-scoped accounts cannot authenticate in legacy single-school mode.' };
+  }
   let schoolId;
   try {schoolId = schoolObjectId(user.schoolId);}
   catch {return {status: 503, error: 'Account school mapping is unavailable.'};}
-  const db = database || getDatabase();
   const school = await db.collection('schools').findOne({_id: schoolId});
   if (!school) return {status: 503, error: 'Account school mapping is unavailable.'};
   if (school.active === false || school.isActive === false || ['suspended', 'deleted', 'archived'].includes(school.status)) return {status: 403, error: 'School access is suspended.'};

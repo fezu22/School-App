@@ -84,7 +84,7 @@ export const getPrincipalDashboard = async (
 
   validateApprovalId(actorId, 'actor ID');
   const actor = await User.findById(actorId).where('branchId').equals(branchId)
-    .where('role').equals('principal').where('isActive').equals(true).select('role');
+    .where('role').equals('principal').where('isActive').equals(true).select('role schoolId');
   if (!actor) throw new ApprovalAccessError(403, 'Principal dashboard actor is not authorized');
   const canViewApprovals = ROLE_PERMISSIONS[actor.role].includes(PERMISSIONS.PRINCIPAL_APPROVALS_VIEW);
 
@@ -93,11 +93,18 @@ export const getPrincipalDashboard = async (
   const principalTasksPromise = getBranchPrincipalTasks(branchId);
 
   const branch = await Branch.findById(branchObjectId).select(
-    '_id name code city isActive',
+    '_id schoolId name code city isActive',
   );
 
   if (!branch) {
     throw new Error('Branch not found');
+  }
+  if (
+    actor.schoolId &&
+    branch.schoolId &&
+    String(actor.schoolId) !== String(branch.schoolId)
+  ) {
+    throw new ApprovalAccessError(403, 'Principal dashboard branch belongs to another school');
   }
 
   const attendanceSummaryPromise = getBranchAttendanceSummary(branchId);

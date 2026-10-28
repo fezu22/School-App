@@ -7,12 +7,11 @@ let links;
 let students;
 let lastLinkQuery;
 let studentLookupCount;
+const schoolAId = new ObjectId();
+const schoolBId = new ObjectId();
 const parentBranchId = new ObjectId();
-const parentBranch = { _id: parentBranchId };
-const parentUsers = [
-  { _id: new ObjectId(), id: 'parent-a', role: 'parent', branchId: parentBranchId.toHexString() },
-  { _id: new ObjectId(), id: 'parent-b', role: 'parent', branchId: parentBranchId.toHexString() },
-];
+const parentBranch = { _id: parentBranchId, schoolId: schoolAId, isActive: true };
+let parentUsers = [];
 
 function matchesValue(actual, expected) {
   if (expected && typeof expected === 'object' && !(expected instanceof ObjectId)) {
@@ -68,6 +67,11 @@ require.cache[databasePath] = {
             studentLookupCount += 1;
             return students.find(student => matches(student, query)) || null;
           }
+          if (name === 'schools') {
+            if (String(query._id) === String(schoolAId)) return { _id: schoolAId, isActive: true, status: 'active' };
+            if (String(query._id) === String(schoolBId)) return { _id: schoolBId, isActive: true, status: 'active' };
+            return null;
+          }
           if (name === 'branches') return String(query._id) === String(parentBranchId) ? parentBranch : null;
           throw new Error(`Unexpected collection ${name}`);
         },
@@ -85,11 +89,19 @@ const {
   verifiedLinkFilter,
 } = require('./parentRoutes').__test;
 
+const parentAObjectId = new ObjectId();
+const parentBObjectId = new ObjectId();
+
 beforeEach(() => {
+  parentUsers = [
+    { _id: parentAObjectId, id: 'parent-a', role: 'parent', schoolId: schoolAId.toHexString(), branchId: parentBranchId.toHexString() },
+    { _id: parentBObjectId, id: 'parent-b', role: 'parent', schoolId: schoolAId.toHexString(), branchId: parentBranchId.toHexString() },
+  ];
   links = [
     {
       parentUserId: 'parent-a',
       studentId: '002',
+      schoolId: schoolAId.toHexString(),
       status: 'verified',
       verified: true,
       revokedAt: null,
@@ -97,14 +109,15 @@ beforeEach(() => {
     {
       parentUserId: 'parent-b',
       studentId: '003',
+      schoolId: schoolAId.toHexString(),
       status: 'verified',
       verified: true,
       revokedAt: null,
     },
   ];
   students = [
-    { _id: new ObjectId(), id: '002', fullName: 'Student Two', classId: 'CLASS-A', branchId: parentBranchId.toHexString() },
-    { _id: new ObjectId(), id: '003', fullName: 'Student Three', classId: 'CLASS-B', branchId: parentBranchId.toHexString() },
+    { _id: new ObjectId(), id: '002', fullName: 'Student Two', classId: 'CLASS-A', schoolId: schoolAId.toHexString(), branchId: parentBranchId.toHexString() },
+    { _id: new ObjectId(), id: '003', fullName: 'Student Three', classId: 'CLASS-B', schoolId: schoolAId.toHexString(), branchId: parentBranchId.toHexString() },
   ];
   lastLinkQuery = null;
   studentLookupCount = 0;
@@ -187,6 +200,21 @@ test('revoked status wins over a stale legacy verified flag', async () => {
   assert.equal(studentLookupCount, 0);
 });
 
+test('cross-school student or missing parent schoolId fails closed', async () => {
+  students[0].schoolId = schoolBId.toHexString();
+  await assert.rejects(
+    getVerifiedChild('parent-a', '002'),
+    error => error.code === 'SCHOOL_ACCESS_DENIED' && error.statusCode === 403,
+  );
+
+  students[0].schoolId = schoolAId.toHexString();
+  delete parentUsers[0].schoolId;
+  await assert.rejects(
+    getVerifiedChild('parent-a', '002'),
+    error => error.code === 'INTEGRATION_SCHOOL_SCOPE_REQUIRED' && error.statusCode === 503,
+  );
+});
+
 test('child record filters cannot be redirected to another student', () => {
   const filter = ownedChildFilter(
     { id: '002' },
@@ -218,3 +246,4 @@ test('non-parent roles cannot enter Parent routes', () => {
   assert.equal(status, 403);
   assert.equal(passed, false);
 });
+

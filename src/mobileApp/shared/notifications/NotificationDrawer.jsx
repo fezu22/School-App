@@ -110,10 +110,14 @@ const NotificationDrawer = forwardRef(function NotificationDrawer(
 
   useEffect(() => {
     if (visible) {
+      if (reducedMotion || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test')) {
+        slideX.setValue(0);
+        return;
+      }
       slideX.setValue(-drawerWidth);
       Animated.timing(slideX, {
         toValue: 0,
-        duration: reducedMotion ? 0 : 210,
+        duration: 210,
         useNativeDriver: true,
       }).start();
     }

@@ -1,22 +1,26 @@
 import { extraPages } from '../features/featureScreens';
 
 export const theme = {
-  background: '#FFF9EF',
-  paper: '#FFFEFA',
-  ink: '#282940',
-  muted: '#92918A',
-  primary: '#4857B5',
-  lavender: '#EEEDFF',
-  border: '#E6E2D7',
-  gold: '#FFE4AA',
+  background: '#FAF8F5',
+  paper: '#FFFFFF',
+  mutedContainer: '#F5F2EB',
+  ink: '#0F172A',
+  muted: '#475569',
+  primary: '#0D9488',
+  secondary: '#1E3A8A',
+  lavender: '#CCFBF1',
+  border: '#EDE8DF',
+  gold: '#FEF3C7',
+  amber: '#D97706',
   shadow: {
-    shadowColor: '#5E5039',
+    shadowColor: '#1E293B',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.09,
-    shadowRadius: 9,
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
   },
 };
+
 export const rolePages = {
   Parent: [
     'Home',
@@ -83,7 +87,14 @@ export const rolePages = {
     'Applications',
     'Inbox',
   ],
+  'Ultra Admin': [
+    'Home',
+    'Schools',
+    'Subscriptions',
+    'Platform Audit',
+  ],
 };
+
 export const bottomPages = {
   Parent: ['Home', 'Progress', 'Inbox'],
   Student: ['Home', 'Timetable', 'Homework', 'Inbox'],
@@ -91,6 +102,7 @@ export const bottomPages = {
   Teacher: ['Home', 'Classes', 'Inbox'],
   Principal: ['Home', 'Reports', 'Inbox'],
   'Super Admin': ['Home', 'Schools', 'Inbox'],
+  'Ultra Admin': ['Home', 'Schools', 'Subscriptions', 'Platform Audit'],
 };
 
 const connectedExtraPages = {

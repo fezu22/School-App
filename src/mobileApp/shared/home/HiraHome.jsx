@@ -129,7 +129,7 @@ export default function HiraHome({
   }, [load]);
   useEffect(() => {
     float.setValue(0);
-    if (reducedMotion) return;
+    if (reducedMotion || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test')) return;
     const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(float, {

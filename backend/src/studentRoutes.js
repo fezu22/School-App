@@ -16,6 +16,11 @@ const {
   resolveUserForRole,
   unresolvedClassReference,
 } = require('./identityReferenceAdapter');
+const {
+  assertRecordTenantScope,
+  combineTenantFilter,
+  resolveVerifiedTenantScope,
+} = require('./schoolAccess');
 
 const router = express.Router();
 const MAX_SUBMISSION_FILE_BYTES = 5 * 1024 * 1024;
@@ -50,6 +55,7 @@ function requireStudentContext(req, res, next) {
   (async () => {
     const db = getDatabase();
     const identity = await resolveUserForRole(db, userId, 'student');
+    const tenantScope = await resolveVerifiedTenantScope(db, identity, { requireBranch: true });
     const students = await db.collection('students')
       .find({ userId: { $in: referenceValues(identity) } })
       .limit(3)
@@ -67,10 +73,17 @@ function requireStudentContext(req, res, next) {
       error.code = 'INTEGRATION_REFERENCE_UNRESOLVED';
       throw error;
     }
-    await assertSameBranch(db, identity.branchId, student.branchId);
+    await assertSameBranch(db, identity.branchId, student.branchId, tenantScope.schoolIdHex);
+    assertRecordTenantScope(tenantScope, student, 'Student');
+    Object.defineProperty(student, 'tenantScope', {
+      value: tenantScope,
+      enumerable: false,
+      configurable: true,
+    });
     req.authenticatedIdentity = identity;
     req.apiUserId = apiId(identity);
     req.studentRecord = student;
+    req.tenantScope = tenantScope;
     return next();
   })().catch(next);
 }
@@ -114,6 +127,10 @@ function publishedFilter() {
 
 function ownedStudentFilter(student, extra = {}) {
   return { ...extra, studentId: student.id };
+}
+
+function scopedStudentQuery(req, filter, options = {}) {
+  return combineTenantFilter(req.tenantScope || req.studentRecord?.tenantScope, filter, options);
 }
 
 function recordIdFilter(id) {
@@ -198,11 +215,11 @@ router.get('/applications', async (req, res, next) => {
     const data = await getDatabase()
       .collection('classTeacherApplications')
       .find(
-        {
+        scopedStudentQuery(req, {
           applicantUserId: req.user.id,
           applicantRole: 'student',
           studentId: req.studentRecord.id,
-        },
+        }),
         { projection: { applicantUserId: 0, assignedTeacherUserId: 0 } },
       )
       .sort({ createdAt: -1 })
@@ -267,7 +284,7 @@ router.get('/timetable', async (req, res, next) => {
     if (req.studentRecord.classId) unresolvedClassReference();
     const data = await getDatabase()
       .collection('timetable')
-      .find(studentClassFilter(req.studentRecord))
+      .find(scopedStudentQuery(req, studentClassFilter(req.studentRecord)))
       .sort({ dayOfWeek: 1, startTime: 1 })
       .toArray();
     return res.json({ success: true, data });
@@ -283,7 +300,7 @@ router.get('/attendance', async (req, res, next) => {
       return res.status(400).json({ success: false, error: range.error });
     const data = await getDatabase()
       .collection('attendance')
-      .find(ownedStudentFilter(req.studentRecord, range.filter))
+      .find(scopedStudentQuery(req, ownedStudentFilter(req.studentRecord, range.filter)))
       .sort({ date: -1 })
       .toArray();
     return res.json({ success: true, data });
@@ -296,7 +313,7 @@ router.get('/results', async (req, res, next) => {
   try {
     const data = await getDatabase()
       .collection('results')
-      .find(ownedStudentFilter(req.studentRecord, publishedFilter()))
+      .find(scopedStudentQuery(req, ownedStudentFilter(req.studentRecord, publishedFilter())))
       .sort({ publishedAt: -1 })
       .toArray();
     return res.json({ success: true, data });
@@ -309,7 +326,7 @@ router.get('/progress', async (req, res, next) => {
   try {
     const data = await getDatabase()
       .collection('progress')
-      .find(ownedStudentFilter(req.studentRecord, publishedFilter()))
+      .find(scopedStudentQuery(req, ownedStudentFilter(req.studentRecord, publishedFilter())))
       .sort({ updatedAt: -1 })
       .toArray();
     return res.json({ success: true, data });
@@ -321,8 +338,8 @@ router.get('/progress', async (req, res, next) => {
 router.get('/fees', async (req, res, next) => {
   try {
     const student = req.studentRecord;
-    const match = { studentId: student.id };
-    if (student.branchId) match.branchId = student.branchId;
+    const match = scopedStudentQuery(req, { studentId: student.id });
+    const paymentScopeMatch = req.tenantScope?.schoolFilter || {};
     const data = await getDatabase()
       .collection('invoices')
       .aggregate([
@@ -334,6 +351,7 @@ router.get('/fees', async (req, res, next) => {
             pipeline: [
               {
                 $match: {
+                  ...paymentScopeMatch,
                   $expr: {
                     $and: [
                       { $eq: ['$invoiceId', '$$invoiceId'] },
@@ -452,13 +470,14 @@ router.get('/fees', async (req, res, next) => {
 
 router.get('/homework', async (req, res, next) => {
   try {
+    const submissionScopeMatch = req.tenantScope?.schoolFilter || {};
     const data = await getDatabase()
       .collection('homework')
       .aggregate([
         {
-          $match: {
+          $match: scopedStudentQuery(req, {
             $and: [publishedFilter(), studentClassFilter(req.studentRecord)],
-          },
+          }),
         },
         {
           $lookup: {
@@ -467,6 +486,7 @@ router.get('/homework', async (req, res, next) => {
             pipeline: [
               {
                 $match: {
+                  ...submissionScopeMatch,
                   $expr: {
                     $and: [
                       { $eq: ['$homeworkId', '$$homeworkId'] },
@@ -496,13 +516,15 @@ router.get('/homework', async (req, res, next) => {
 router.get('/homework/:homeworkId', async (req, res, next) => {
   try {
     const db = getDatabase();
-    const homework = await db.collection('homework').findOne({
-      $and: [
-        recordIdFilter(req.params.homeworkId),
-        publishedFilter(),
-        studentClassFilter(req.studentRecord),
-      ],
-    });
+    const homework = await db.collection('homework').findOne(
+      scopedStudentQuery(req, {
+        $and: [
+          recordIdFilter(req.params.homeworkId),
+          publishedFilter(),
+          studentClassFilter(req.studentRecord),
+        ],
+      }),
+    );
     if (!homework) {
       return res.status(404).json({
         success: false,
@@ -511,7 +533,7 @@ router.get('/homework/:homeworkId', async (req, res, next) => {
     }
     const homeworkId = homework.id || String(homework._id);
     const latestSubmission = await db.collection('submissions').findOne(
-      { homeworkId, studentId: req.studentRecord.id },
+      scopedStudentQuery(req, { homeworkId, studentId: req.studentRecord.id }, { includeBranch: false }),
       { projection: { fileData: 0 }, sort: { submittedAt: -1 } },
     );
     return res.json({
@@ -526,13 +548,15 @@ router.get('/homework/:homeworkId', async (req, res, next) => {
 router.get('/homework/:homeworkId/submissions', async (req, res, next) => {
   try {
     const db = getDatabase();
-    const homework = await db.collection('homework').findOne({
-      $and: [
-        recordIdFilter(req.params.homeworkId),
-        publishedFilter(),
-        studentClassFilter(req.studentRecord),
-      ],
-    });
+    const homework = await db.collection('homework').findOne(
+      scopedStudentQuery(req, {
+        $and: [
+          recordIdFilter(req.params.homeworkId),
+          publishedFilter(),
+          studentClassFilter(req.studentRecord),
+        ],
+      }),
+    );
     if (!homework) {
       return res.status(404).json({
         success: false,
@@ -542,10 +566,14 @@ router.get('/homework/:homeworkId/submissions', async (req, res, next) => {
     const data = await db
       .collection('submissions')
       .find(
-        {
-          homeworkId: homework.id || String(homework._id),
-          studentId: req.studentRecord.id,
-        },
+        scopedStudentQuery(
+          req,
+          {
+            homeworkId: homework.id || String(homework._id),
+            studentId: req.studentRecord.id,
+          },
+          { includeBranch: false },
+        ),
         { projection: { fileData: 0 } },
       )
       .sort({ submittedAt: -1 })
@@ -558,10 +586,16 @@ router.get('/homework/:homeworkId/submissions', async (req, res, next) => {
 
 router.get('/submissions/:submissionId/file', async (req, res, next) => {
   try {
-    const submission = await getDatabase().collection('submissions').findOne({
-      id: req.params.submissionId,
-      studentId: req.studentRecord.id,
-    });
+    const submission = await getDatabase().collection('submissions').findOne(
+      scopedStudentQuery(
+        req,
+        {
+          id: req.params.submissionId,
+          studentId: req.studentRecord.id,
+        },
+        { includeBranch: false },
+      ),
+    );
     if (!submission || !submission.fileData) {
       return res
         .status(404)
@@ -592,13 +626,15 @@ router.post(
   async (req, res, next) => {
     try {
       const db = getDatabase();
-      const homework = await db.collection('homework').findOne({
-        $and: [
-          recordIdFilter(req.params.homeworkId),
-          publishedFilter(),
-          studentClassFilter(req.studentRecord),
-        ],
-      });
+      const homework = await db.collection('homework').findOne(
+        scopedStudentQuery(req, {
+          $and: [
+            recordIdFilter(req.params.homeworkId),
+            publishedFilter(),
+            studentClassFilter(req.studentRecord),
+          ],
+        }),
+      );
       if (!homework)
         return res.status(404).json({
           success: false,
@@ -660,6 +696,8 @@ router.post(
         id: crypto.randomUUID(),
         homeworkId,
         studentId: req.studentRecord.id,
+        ...(req.studentRecord.branchId ? { branchId: req.studentRecord.branchId } : {}),
+        ...(req.tenantScope?.schoolId ? { schoolId: req.tenantScope.schoolId } : {}),
         ...(submissionText ? { text: submissionText } : {}),
         ...(req.file
           ? {
@@ -710,6 +748,7 @@ router.use((error, _req, res, next) => {
 module.exports = router;
 module.exports.__test = {
   ownedStudentFilter,
+  scopedStudentQuery,
   MAX_SUBMISSION_FILE_BYTES,
   publishedFilter,
   requireStudentContext,

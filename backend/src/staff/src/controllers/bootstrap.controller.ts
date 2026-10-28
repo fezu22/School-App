@@ -8,7 +8,11 @@ export const bootstrapSuperAdmin = async (
 ): Promise<void> => {
   try {
     const configuredSecret = process.env.SUPER_ADMIN_BOOTSTRAP_SECRET;
-    if (!configuredSecret || configuredSecret.trim().length < 32) {
+    if (
+      !configuredSecret ||
+      configuredSecret.trim().length < 32 ||
+      /^(unconfigured|placeholder|dummy|replace_me)/i.test(configuredSecret.trim())
+    ) {
       res.status(503).json({
         success: false,
         message: 'Super Admin bootstrap is disabled',

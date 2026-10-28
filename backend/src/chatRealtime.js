@@ -118,19 +118,43 @@ function attachChatRealtime(server, {getDb = getDatabase, sessionCheckIntervalMs
       const teacher = await resolveUserForRole(db, conversation.teacherUserId, 'teacher');
       if (teacher.active === false || teacher.isActive === false) return [];
       const teacherId = String(apiId(teacher));
-      const access = await canAccessConversation(db, {id: teacherId, role: 'teacher', branchId: teacher.branchId}, conversation);
+      const teacherSchoolId = teacher.schoolId ? String(teacher.schoolId) : undefined;
+      const access = await canAccessConversation(
+        db,
+        { id: teacherId, role: 'teacher', branchId: teacher.branchId, schoolId: teacherSchoolId },
+        conversation,
+      );
       if (!access) return [];
       const recipients = new Set([teacherId]);
       const student = access.student;
+      const studentSchoolId = student.schoolId ? String(student.schoolId) : teacherSchoolId;
       const learner = await resolveUserForRole(db, student.userId, 'student');
-      if (learner.active !== false && learner.isActive !== false && sameBranchId(learner.branchId, student.branchId)) recipients.add(String(apiId(learner)));
-      const linkFilter = {...verifiedLinkFilter(null, null), ...referenceFieldFilter('studentId', student)};
+      if (
+        learner.active !== false &&
+        learner.isActive !== false &&
+        sameBranchId(learner.branchId, student.branchId) &&
+        String(learner.schoolId || '') === String(studentSchoolId || '')
+      ) {
+        recipients.add(String(apiId(learner)));
+      }
+      const linkFilter = {
+        ...(student.tenantScope?.schoolFilter || {}),
+        ...verifiedLinkFilter(null, null),
+        ...referenceFieldFilter('studentId', student),
+      };
       delete linkFilter.parentUserId;
       const links = await db.collection('parentChildLinks').find(linkFilter).toArray();
       for (const link of links) {
         try {
           const parent = await resolveUserForRole(db, link.parentUserId, 'parent');
-          if (parent.active !== false && parent.isActive !== false && sameBranchId(parent.branchId, student.branchId)) recipients.add(String(apiId(parent)));
+          if (
+            parent.active !== false &&
+            parent.isActive !== false &&
+            sameBranchId(parent.branchId, student.branchId) &&
+            String(parent.schoolId || '') === String(studentSchoolId || '')
+          ) {
+            recipients.add(String(apiId(parent)));
+          }
         } catch { /* A broken Parent reference grants no access and must not disable other authorized recipients. */ }
       }
       return [...recipients];

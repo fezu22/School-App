@@ -5,7 +5,7 @@ const STAFF_PREFIXES = [
   '/api/approval-requests', '/api/privileged-requests', '/api/automation',
   '/api/attendance-review',
   '/api/usage', '/api/backup', '/api/health', '/api/sessions',
-  '/api/staff-students',
+  '/api/staff-students', '/api/live-lessons',
 ];
 function isStaffPath(url) {
   const pathname = String(url || '').split('?')[0];

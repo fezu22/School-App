@@ -1,0 +1,6 @@
+{
+  "name": "Greenwood School",
+  "description": "Multi-school academic, financial, live classroom, AI recorded-learning, DLP, and exam management platform across Ultra Admin, Super Admin, Principal, Teacher, Finance, Parent, and Student roles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

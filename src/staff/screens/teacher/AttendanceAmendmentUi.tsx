@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Text } from 'react-native';
 import { Card, StatusBadge } from '../../components/hiraDashboard';
 import { formStyles } from '../../components/hiraDashboard/AdminForm';

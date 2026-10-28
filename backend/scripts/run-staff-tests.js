@@ -13,6 +13,14 @@ for (const name of files) {
 const env = {...process.env, MONGODB_URI: 'mongodb://127.0.0.1:1/DO_NOT_USE', MONGODB_DB: 'DO_NOT_USE', DOTENV_CONFIG_PATH: resolve(root, '.disabled-test-env')};
 delete env.INTEGRATED_STAFF_ENABLED;
 delete env.ONLINE_PAYMENTS_VERIFIED;
+delete env.LIVE_LESSON_ENABLED;
+delete env.LIVE_LESSONS_VERIFIED;
+delete env.ZEGOCLOUD_ROOM_PRIVILEGES_ENABLED;
+delete env.ZEGO_ROOM_PRIVILEGES_ENABLED;
+delete env.ZEGOCLOUD_APP_ID;
+delete env.ZEGO_APP_ID;
+delete env.ZEGOCLOUD_SERVER_SECRET;
+delete env.ZEGO_SERVER_SECRET;
 const selected = process.argv.slice(2);
 if (selected.some(name => !files.includes(name))) throw new Error('Only audited isolated staff tests may be selected');
 const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', '--test-concurrency=1', ...(selected.length ? selected : files.sort()).map(name => resolve(directory, name))], {cwd: root, env, stdio: 'inherit'});

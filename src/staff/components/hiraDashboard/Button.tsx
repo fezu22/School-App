@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
 import { colors, radius, typography } from '../../theme/hiraDashboard';
 

@@ -3,15 +3,18 @@ const express = require('express');
 const { getDatabase } = require('./database');
 const { referenceValues, resolveUserReference } = require('./identityReferenceAdapter');
 
+const { recordMatchesSchoolScope } = require('./schoolAccess');
+
 const money = value => {
   const cents = Math.round(Number(value) * 100);
   return Number.isSafeInteger(cents) && cents >= 0 ? cents / 100 : null;
 };
 const value = (input, max = 200) => typeof input === 'string' && input.trim() && input.trim().length <= max ? input.trim() : null;
 
-async function verifiedStaff(db, reference, branch) {
+async function verifiedStaff(db, reference, branch, financeContext) {
   const user = await resolveUserReference(db, reference);
   if (!user || ['student', 'parent'].includes(user.role) || user.status === 'inactive') return null;
+  if (financeContext?.tenantScope && !recordMatchesSchoolScope(user, financeContext.tenantScope)) return null;
   const branchMatch = referenceValues(branch).some(item => String(item) === String(user.branchId));
   return branchMatch ? user : null;
 }
@@ -21,6 +24,7 @@ function createFinancePayrollRouter() {
   router.get('/staff', async (req, res, next) => {
     try {
       const data = await getDatabase().collection('users').find({
+        ...(req.financeContext.schoolFilter || {}),
         branchId: req.financeContext.branchFilter,
         role: { $nin: ['student', 'parent'] }, status: { $ne: 'inactive' },
       }, { projection: { _id: 1, id: 1, fullName: 1, name: 1, role: 1, branchId: 1, status: 1 } }).limit(500).toArray();
@@ -29,7 +33,10 @@ function createFinancePayrollRouter() {
   });
   router.get('/salaries', async (req, res, next) => {
     try {
-      const filter = { branchId: req.financeContext.branchFilter };
+      const filter = {
+        ...(req.financeContext.schoolFilter || {}),
+        branchId: req.financeContext.branchFilter,
+      };
       if (req.query.month) filter.month = String(req.query.month);
       if (req.query.status) filter.status = String(req.query.status);
       const data = await getDatabase().collection('staffSalaries').find(filter).sort({ month: -1, createdAt: -1 }).limit(1000).toArray();
@@ -44,9 +51,9 @@ function createFinancePayrollRouter() {
       if (!staffUserId || !/^\d{4}-\d{2}$/.test(month) || baseSalary == null || deductions == null || deductions > baseSalary || (deductions && !deductionReason))
         return res.status(400).json({ success: false, error: 'Verified staff, YYYY-MM month, valid salary, and deduction reason are required.' });
       const db = getDatabase();
-      const staff = await verifiedStaff(db, staffUserId, req.financeContext.branch);
+      const staff = await verifiedStaff(db, staffUserId, req.financeContext.branch, req.financeContext);
       if (!staff) return res.status(404).json({ success: false, error: 'Active staff identity was not found in this Finance branch.' });
-      const salary = { id: crypto.randomUUID(), branchId: req.financeContext.branchId, staffUserId: String(staff.id || staff._id), staffName: staff.fullName || staff.name, month, currency: 'PKR', baseSalary, deductions, ...(deductionReason ? { deductionReason } : {}), netSalary: baseSalary - deductions, status: 'draft', createdByUserId: req.financeContext.userId, createdAt: new Date(), updatedAt: new Date() };
+      const salary = { id: crypto.randomUUID(), ...(req.financeContext.schoolId ? { schoolId: req.financeContext.schoolId } : {}), branchId: req.financeContext.branchId, staffUserId: String(staff.id || staff._id), staffName: staff.fullName || staff.name, month, currency: 'PKR', baseSalary, deductions, ...(deductionReason ? { deductionReason } : {}), netSalary: baseSalary - deductions, status: 'draft', createdByUserId: req.financeContext.userId, createdAt: new Date(), updatedAt: new Date() };
       try { await db.collection('staffSalaries').insertOne(salary); }
       catch (error) { if (error?.code === 11000) return res.status(409).json({ success: false, error: 'A salary record already exists for this staff member and month.' }); throw error; }
       return res.status(201).json({ success: true, data: salary });
@@ -55,7 +62,7 @@ function createFinancePayrollRouter() {
   router.post('/salaries/:salaryId/approve', async (req, res, next) => {
     try {
       const result = await getDatabase().collection('staffSalaries').findOneAndUpdate(
-        { id: req.params.salaryId, branchId: req.financeContext.branchFilter, status: 'draft' },
+        { ...(req.financeContext.schoolFilter || {}), id: req.params.salaryId, branchId: req.financeContext.branchFilter, status: 'draft' },
         { $set: { status: 'approved', approvedByUserId: req.financeContext.userId, approvedAt: new Date(), updatedAt: new Date() } },
         { returnDocument: 'after' },
       );
@@ -67,9 +74,9 @@ function createFinancePayrollRouter() {
       const method = value(req.body?.method, 40), reference = value(req.body?.reference, 200), paidAtText = value(req.body?.paidAt, 40);
       const paidAt = paidAtText ? new Date(paidAtText) : null;
       if (!method || !reference || !paidAt || !Number.isFinite(paidAt.getTime())) return res.status(400).json({ success: false, error: 'Documented payout method, reference, and paidAt are required.' });
-      const db = getDatabase(); const salary = await db.collection('staffSalaries').findOne({ id: req.params.salaryId, branchId: req.financeContext.branchFilter, status: 'approved' });
+      const db = getDatabase(); const salary = await db.collection('staffSalaries').findOne({ ...(req.financeContext.schoolFilter || {}), id: req.params.salaryId, branchId: req.financeContext.branchFilter, status: 'approved' });
       if (!salary) return res.status(409).json({ success: false, error: 'Approved salary was not found in this branch.' });
-      const payout = { id: crypto.randomUUID(), salaryId: salary.id, branchId: req.financeContext.branchId, staffUserId: salary.staffUserId, amount: salary.netSalary, currency: salary.currency, method, reference, paidAt, recordedByUserId: req.financeContext.userId, createdAt: new Date() };
+      const payout = { id: crypto.randomUUID(), ...(req.financeContext.schoolId ? { schoolId: req.financeContext.schoolId } : {}), salaryId: salary.id, branchId: req.financeContext.branchId, staffUserId: salary.staffUserId, amount: salary.netSalary, currency: salary.currency, method, reference, paidAt, recordedByUserId: req.financeContext.userId, createdAt: new Date() };
       const session = require('./database').getClient().startSession();
       try { await session.withTransaction(async () => {
         await db.collection('salaryPayouts').insertOne(payout, { session });
@@ -81,9 +88,9 @@ function createFinancePayrollRouter() {
   });
   router.get('/salaries/:salaryId/payslip', async (req, res, next) => {
     try {
-      const salary = await getDatabase().collection('staffSalaries').findOne({ id: req.params.salaryId, branchId: req.financeContext.branchFilter, status: 'paid' });
+      const salary = await getDatabase().collection('staffSalaries').findOne({ ...(req.financeContext.schoolFilter || {}), id: req.params.salaryId, branchId: req.financeContext.branchFilter, status: 'paid' });
       if (!salary) return res.status(404).json({ success: false, error: 'Paid salary was not found in this branch.' });
-      const payout = await getDatabase().collection('salaryPayouts').findOne({ id: salary.payoutId, branchId: req.financeContext.branchFilter });
+      const payout = await getDatabase().collection('salaryPayouts').findOne({ ...(req.financeContext.schoolFilter || {}), id: salary.payoutId, branchId: req.financeContext.branchFilter });
       return res.json({ success: true, data: { salaryId: salary.id, staffUserId: salary.staffUserId, staffName: salary.staffName, month: salary.month, currency: salary.currency, baseSalary: salary.baseSalary, deductions: salary.deductions, deductionReason: salary.deductionReason || null, netSalary: salary.netSalary, status: salary.status, payout } });
     } catch (error) { return next(error); }
   });

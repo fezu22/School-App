@@ -7,8 +7,17 @@ const databasePath = require.resolve('./database');
 let linkedStudent;
 let studentLookup;
 let otherBranchId;
+let currentStudentUser;
+const schoolAId = new ObjectId();
+const schoolBId = new ObjectId();
 const studentBranchId = new ObjectId();
-const studentUser = { _id: new ObjectId(), id: 'user-002', role: 'student', branchId: studentBranchId.toHexString() };
+const studentUser = {
+  _id: new ObjectId(),
+  id: 'user-002',
+  role: 'student',
+  schoolId: schoolAId.toHexString(),
+  branchId: studentBranchId.toHexString(),
+};
 
 function matchesValue(actual, expected) {
   if (expected && typeof expected === 'object' && !(expected instanceof ObjectId)) {
@@ -34,7 +43,7 @@ require.cache[databasePath] = {
     getDatabase: () => ({
       collection: name => ({
         find: query => {
-          if (name === 'users') return cursor([studentUser].filter(row => matches(row, query)));
+          if (name === 'users') return cursor([currentStudentUser].filter(row => row && matches(row, query)));
           if (name === 'students') {
             studentLookup = query;
             return cursor(linkedStudent && matches(linkedStudent, query) ? [linkedStudent] : []);
@@ -42,9 +51,14 @@ require.cache[databasePath] = {
           throw new Error(`Unexpected collection ${name}`);
         },
         findOne: async query => {
+          if (name === 'schools') {
+            if (String(query._id) === String(schoolAId)) return { _id: schoolAId, isActive: true, status: 'active' };
+            if (String(query._id) === String(schoolBId)) return { _id: schoolBId, isActive: true, status: 'active' };
+            return null;
+          }
           if (name !== 'branches') return null;
           const branch = [studentBranchId, otherBranchId].find(id => id && String(query._id) === String(id));
-          return branch ? { _id: branch } : null;
+          return branch ? { _id: branch, schoolId: schoolAId, isActive: true } : null;
         },
       }),
     }),
@@ -62,7 +76,15 @@ const {
 } = require('./studentRoutes').__test;
 
 beforeEach(() => {
-  linkedStudent = { _id: new ObjectId(), id: '002', userId: 'user-002', classId: 'CLASS-A', branchId: studentBranchId.toHexString() };
+  currentStudentUser = { ...studentUser };
+  linkedStudent = {
+    _id: new ObjectId(),
+    id: '002',
+    userId: 'user-002',
+    classId: 'CLASS-A',
+    schoolId: schoolAId.toHexString(),
+    branchId: studentBranchId.toHexString(),
+  };
   studentLookup = null;
   otherBranchId = null;
 });
@@ -129,6 +151,21 @@ test('Student access is denied when the persisted user and Student branch record
   );
 });
 
+test('Student access fails closed when schoolId is missing or when Student record belongs to another school', async () => {
+  delete currentStudentUser.schoolId;
+  await assert.rejects(
+    authorize({ id: 'user-002', role: 'student' }),
+    error => error.code === 'INTEGRATION_SCHOOL_SCOPE_REQUIRED' && error.statusCode === 503,
+  );
+
+  currentStudentUser.schoolId = schoolAId.toHexString();
+  linkedStudent.schoolId = schoolBId.toHexString();
+  await assert.rejects(
+    authorize({ id: 'user-002', role: 'student' }),
+    error => error.code === 'SCHOOL_ACCESS_DENIED' && error.statusCode === 403,
+  );
+});
+
 test('owned record filters cannot be redirected to another student', () => {
   const filter = ownedStudentFilter(
     { id: '002' },
@@ -191,3 +228,4 @@ test('homework file validation accepts matching signatures only', () => {
   });
   assert.match(mismatched.error, /must match/i);
 });
+

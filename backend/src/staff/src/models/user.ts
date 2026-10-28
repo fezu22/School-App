@@ -16,6 +16,7 @@ export const SUPER_ADMIN_BOOTSTRAP_INDEX = {
 } as const;
 
 export interface IUser extends Document {
+  schoolId?: Schema.Types.ObjectId;
   fullName: string;
   email: string;
   phone?: string;
@@ -30,6 +31,12 @@ export interface IUser extends Document {
 
 const userSchema = new Schema<IUser>(
   {
+    schoolId: {
+      type: Schema.Types.ObjectId,
+      ref: 'School',
+      default: null,
+    },
+
     fullName: {
       type: String,
       required: true,

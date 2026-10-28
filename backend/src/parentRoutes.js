@@ -15,6 +15,11 @@ const {
   resolveUserForRole,
   unresolvedClassReference,
 } = require('./identityReferenceAdapter');
+const {
+  assertRecordTenantScope,
+  combineTenantFilter,
+  resolveVerifiedTenantScope,
+} = require('./schoolAccess');
 
 const router = express.Router();
 
@@ -30,13 +35,20 @@ function requireParentContext(req, res, next) {
       .status(403)
       .json({ success: false, error: 'Parent access is required.' });
   }
-  resolveUserForRole(getDatabase(), userId, 'parent')
-    .then(identity => {
-      req.parentIdentity = identity;
-      req.parentUserId = apiId(identity);
-      return next();
-    })
-    .catch(next);
+  (async () => {
+    const db = getDatabase();
+    const identity = await resolveUserForRole(db, userId, 'parent');
+    const tenantScope = await resolveVerifiedTenantScope(db, identity, { requireBranch: true });
+    Object.defineProperty(identity, 'tenantScope', {
+      value: tenantScope,
+      enumerable: false,
+      configurable: true,
+    });
+    req.parentIdentity = identity;
+    req.parentUserId = apiId(identity);
+    req.tenantScope = tenantScope;
+    return next();
+  })().catch(next);
 }
 
 function verifiedLinkFilter(parentUserId, studentId) {
@@ -59,6 +71,9 @@ async function getVerifiedChild(parentUserId, studentId) {
   const parentIdentity = parentUserId && typeof parentUserId === 'object'
     ? parentUserId
     : await resolveUserForRole(db, parentUserId, 'parent');
+  const tenantScope =
+    parentIdentity.tenantScope ||
+    await resolveVerifiedTenantScope(db, parentIdentity, { requireBranch: true });
   const requestedStudent = referenceFieldQuery('studentId', studentId);
   if (!requestedStudent) return null;
   const candidates = await db.collection('parentChildLinks')
@@ -74,6 +89,10 @@ async function getVerifiedChild(parentUserId, studentId) {
   for (const candidate of candidates) {
     const linkedParent = await resolveUserReference(db, candidate.parentUserId);
     if (String(linkedParent._id) === String(parentIdentity._id)) {
+      assertRecordTenantScope(tenantScope, candidate, 'Parent link', {
+        requireSchoolOnRecord: false,
+        requireBranchMatch: false,
+      });
       link = candidate;
       break;
     }
@@ -82,7 +101,8 @@ async function getVerifiedChild(parentUserId, studentId) {
   const linkedStudent = await resolveRecordReference(db, 'students', link.studentId, { label: 'Student' });
   const requestedRecord = await resolveRecordReference(db, 'students', studentId, { label: 'Student' });
   if (String(linkedStudent._id) !== String(requestedRecord._id)) return null;
-  await assertSameBranch(db, parentIdentity.branchId, linkedStudent.branchId);
+  await assertSameBranch(db, parentIdentity.branchId, linkedStudent.branchId, tenantScope.schoolIdHex);
+  assertRecordTenantScope(tenantScope, linkedStudent, 'Student');
   const response = {
     id: apiId(linkedStudent),
     name: linkedStudent.name,
@@ -92,11 +112,19 @@ async function getVerifiedChild(parentUserId, studentId) {
     classId: linkedStudent.classId,
     status: linkedStudent.status,
   };
+  Object.defineProperties(response, {
+    branchId: { value: linkedStudent.branchId, enumerable: false, configurable: true },
+    schoolId: { value: linkedStudent.schoolId, enumerable: false, configurable: true },
+    tenantScope: { value: tenantScope, enumerable: false, configurable: true },
+  });
   return response;
 }
 
 async function listVerifiedChildren(parentIdentity) {
   const db = getDatabase();
+  const tenantScope =
+    parentIdentity?.tenantScope ||
+    await resolveVerifiedTenantScope(db, parentIdentity, { requireBranch: true });
   const links = await db.collection('parentChildLinks')
     .find(verifiedLinkFilter(parentIdentity))
     .limit(500)
@@ -105,8 +133,13 @@ async function listVerifiedChildren(parentIdentity) {
   for (const link of links) {
     const linkedParent = await resolveUserReference(db, link.parentUserId);
     if (String(linkedParent._id) !== String(parentIdentity._id)) continue;
+    assertRecordTenantScope(tenantScope, link, 'Parent link', {
+      requireSchoolOnRecord: false,
+      requireBranchMatch: false,
+    });
     const student = await resolveRecordReference(db, 'students', link.studentId, { label: 'Student' });
-    await assertSameBranch(db, parentIdentity.branchId, student.branchId);
+    await assertSameBranch(db, parentIdentity.branchId, student.branchId, tenantScope.schoolIdHex);
+    assertRecordTenantScope(tenantScope, student, 'Student');
     unique.set(String(student._id), student);
   }
   return [...unique.values()];
@@ -153,6 +186,10 @@ function ownedChildFilter(child, extra = {}) {
   return { ...extra, studentId: child.id };
 }
 
+function scopedParentQuery(req, filter, options = {}) {
+  return combineTenantFilter(req.tenantScope || req.parentChild?.tenantScope || req.parentIdentity?.tenantScope, filter, options);
+}
+
 router.use(requireParentContext);
 router.use('/payments', parentPaymentRoutes);
 
@@ -166,11 +203,11 @@ router.get('/notifications', async (req, res, next) => {
       ? await getDatabase()
           .collection('parentNotifications')
           .find(
-            {
+            scopedParentQuery(req, {
               parentUserId: req.parentUserId,
               type: 'parent_dlp_shared',
               classId: { $in: classIds },
-            },
+            }),
             { projection: { parentUserId: 0 } },
           )
           .sort({ createdAt: -1 })
@@ -179,7 +216,11 @@ router.get('/notifications', async (req, res, next) => {
     const recipientNotifications = await getDatabase()
       .collection('notifications')
       .find(
-        { recipientUserId: req.parentUserId, recipientRole: 'parent' },
+        scopedParentQuery(
+          req,
+          { recipientUserId: req.parentUserId, recipientRole: 'parent' },
+          { includeBranch: false },
+        ),
         { projection: { recipientUserId: 0 } },
       )
       .sort({ createdAt: -1 })
@@ -207,28 +248,40 @@ router.post('/notifications/:notificationId/read', async (req, res, next) => {
     const identity = [{ id }];
     if (ObjectId.isValid(id)) identity.push({ _id: new ObjectId(id) });
     const collection = getDatabase().collection('parentNotifications');
-    const notification = await collection.findOne({
-      parentUserId: req.parentUserId,
-      type: 'parent_dlp_shared',
-      $or: identity,
-    });
+    const notification = await collection.findOne(
+      scopedParentQuery(req, {
+        parentUserId: req.parentUserId,
+        type: 'parent_dlp_shared',
+        $or: identity,
+      }),
+    );
     if (!notification) {
       const generic = getDatabase().collection('notifications');
       const result = await generic.updateOne(
-        {
-          recipientUserId: req.parentUserId,
-          recipientRole: 'parent',
-          $or: identity,
-          readAt: null,
-        },
+        scopedParentQuery(
+          req,
+          {
+            recipientUserId: req.parentUserId,
+            recipientRole: 'parent',
+            $or: identity,
+            readAt: null,
+          },
+          { includeBranch: false },
+        ),
         { $set: { readAt: new Date() } },
       );
       if (!result.matchedCount) {
-        const exists = await generic.findOne({
-          recipientUserId: req.parentUserId,
-          recipientRole: 'parent',
-          $or: identity,
-        });
+        const exists = await generic.findOne(
+          scopedParentQuery(
+            req,
+            {
+              recipientUserId: req.parentUserId,
+              recipientRole: 'parent',
+              $or: identity,
+            },
+            { includeBranch: false },
+          ),
+        );
         if (!exists) {
           return res.status(404).json({
             success: false,
@@ -239,21 +292,12 @@ router.post('/notifications/:notificationId/read', async (req, res, next) => {
       return res.json({ success: true, data: { read: true } });
     }
 
-    const links = await getDatabase()
-      .collection('parentChildLinks')
-      .find(verifiedLinkFilter(req.parentIdentity))
-      .toArray();
-    const studentIds = [
-      ...new Set(links.map(link => link.studentId).filter(Boolean)),
-    ];
-    const hasClassAccess = studentIds.length
-      ? await getDatabase()
-          .collection('students')
-          .findOne({
-            id: { $in: studentIds },
-            classId: notification.classId,
-          })
-      : null;
+    const children = await listVerifiedChildren(req.parentIdentity);
+    const hasClassAccess = children.some(
+      child =>
+        String(child.classId) === String(notification.classId) &&
+        (!notification.section || String(child.section) === String(notification.section)),
+    );
     if (!hasClassAccess) {
       return res.status(404).json({
         success: false,
@@ -262,12 +306,12 @@ router.post('/notifications/:notificationId/read', async (req, res, next) => {
     }
 
     await collection.updateOne(
-      {
+      scopedParentQuery(req, {
         _id: notification._id,
         parentUserId: req.parentUserId,
         type: 'parent_dlp_shared',
         classId: notification.classId,
-      },
+      }),
       { $set: { readAt: new Date() } },
     );
     return res.json({ success: true, data: { read: true } });
@@ -283,19 +327,27 @@ router.get('/notifications/:notificationId', async (req, res, next) => {
     if (ObjectId.isValid(id)) notificationMatch.push({ _id: new ObjectId(id) });
     const notification = await getDatabase()
       .collection('parentNotifications')
-      .findOne({
-        parentUserId: req.parentUserId,
-        type: 'parent_dlp_shared',
-        $or: notificationMatch,
-      });
+      .findOne(
+        scopedParentQuery(req, {
+          parentUserId: req.parentUserId,
+          type: 'parent_dlp_shared',
+          $or: notificationMatch,
+        }),
+      );
     if (!notification) {
       const genericNotification = await getDatabase()
         .collection('notifications')
-        .findOne({
-          recipientUserId: req.parentUserId,
-          recipientRole: 'parent',
-          $or: notificationMatch,
-        });
+        .findOne(
+          scopedParentQuery(
+            req,
+            {
+              recipientUserId: req.parentUserId,
+              recipientRole: 'parent',
+              $or: notificationMatch,
+            },
+            { includeBranch: false },
+          ),
+        );
       if (!genericNotification) {
         return res.status(404).json({
           success: false,
@@ -307,21 +359,12 @@ router.get('/notifications/:notificationId', async (req, res, next) => {
       return res.json({ success: true, data: safeNotification });
     }
 
-    const links = await getDatabase()
-      .collection('parentChildLinks')
-      .find(verifiedLinkFilter(req.parentIdentity))
-      .toArray();
-    const studentIds = [
-      ...new Set(links.map(link => link.studentId).filter(Boolean)),
-    ];
-    const hasClassAccess = studentIds.length
-      ? await getDatabase()
-          .collection('students')
-          .findOne({
-            id: { $in: studentIds },
-            classId: notification.classId,
-          })
-      : null;
+    const children = await listVerifiedChildren(req.parentIdentity);
+    const hasClassAccess = children.some(
+      child =>
+        String(child.classId) === String(notification.classId) &&
+        (!notification.section || String(child.section) === String(notification.section)),
+    );
     if (!hasClassAccess) {
       return res.status(404).json({
         success: false,
@@ -333,19 +376,24 @@ router.get('/notifications/:notificationId', async (req, res, next) => {
     const versionMatch = [{ id: versionId }];
     if (ObjectId.isValid(versionId))
       versionMatch.push({ _id: new ObjectId(versionId) });
-    const dlpVersion = await getDatabase().collection('dlpVersions').findOne({
-      $or: versionMatch,
-      classId: notification.classId,
-      audience: 'parent',
-      status: 'published',
-    });
+    const dlpVersion = await getDatabase().collection('dlpVersions').findOne(
+      scopedParentQuery(req, {
+        $or: versionMatch,
+        classId: notification.classId,
+        ...(notification.section ? { section: notification.section } : {}),
+        audience: 'parent',
+        status: 'published',
+      }),
+    );
     if (!dlpVersion) {
       return res.status(404).json({
         success: false,
         error: 'The exact shared Parent DLP version is no longer available.',
       });
     }
-    return res.json({ success: true, data: { notification, dlpVersion } });
+    const safeDlpVersion = { ...dlpVersion };
+    delete safeDlpVersion.internalStaffNotes;
+    return res.json({ success: true, data: { notification, dlpVersion: safeDlpVersion } });
   } catch (error) {
     return next(error);
   }
@@ -397,11 +445,11 @@ router.get('/children/:studentId/applications', async (req, res, next) => {
     const data = await getDatabase()
       .collection('classTeacherApplications')
       .find(
-        {
+        scopedParentQuery(req, {
           applicantUserId: req.parentUserId,
           applicantRole: 'parent',
           studentId: req.parentChild.id,
-        },
+        }),
         { projection: { applicantUserId: 0, assignedTeacherUserId: 0 } },
       )
       .sort({ createdAt: -1 })
@@ -444,7 +492,7 @@ router.get('/children/:studentId/attendance', async (req, res, next) => {
       return res.status(400).json({ success: false, error: range.error });
     const data = await getDatabase()
       .collection('attendance')
-      .find(ownedChildFilter(req.parentChild, range.filter))
+      .find(scopedParentQuery(req, ownedChildFilter(req.parentChild, range.filter)))
       .sort({ date: -1 })
       .toArray();
     return res.json({ success: true, data });
@@ -458,7 +506,7 @@ router.get('/children/:studentId/timetable', async (req, res, next) => {
     if (req.parentChild.classId) unresolvedClassReference();
     const data = await getDatabase()
       .collection('timetable')
-      .find(childScheduleFilter(req.parentChild))
+      .find(scopedParentQuery(req, childScheduleFilter(req.parentChild)))
       .sort({ dayOfWeek: 1, startTime: 1 })
       .toArray();
     return res.json({ success: true, data });
@@ -471,7 +519,7 @@ router.get('/children/:studentId/homework', async (req, res, next) => {
   try {
     const data = await getDatabase()
       .collection('homework')
-      .find({ $and: [publishedFilter(), childScheduleFilter(req.parentChild)] })
+      .find(scopedParentQuery(req, { $and: [publishedFilter(), childScheduleFilter(req.parentChild)] }))
       .sort({ dueDate: 1 })
       .toArray();
     return res.json({ success: true, data });
@@ -484,7 +532,7 @@ router.get('/children/:studentId/results', async (req, res, next) => {
   try {
     const data = await getDatabase()
       .collection('results')
-      .find(ownedChildFilter(req.parentChild, publishedFilter()))
+      .find(scopedParentQuery(req, ownedChildFilter(req.parentChild, publishedFilter())))
       .sort({ publishedAt: -1 })
       .toArray();
     return res.json({ success: true, data });
@@ -497,7 +545,7 @@ router.get('/children/:studentId/progress', async (req, res, next) => {
   try {
     const data = await getDatabase()
       .collection('progress')
-      .find(ownedChildFilter(req.parentChild, publishedFilter()))
+      .find(scopedParentQuery(req, ownedChildFilter(req.parentChild, publishedFilter())))
       .sort({ updatedAt: -1 })
       .toArray();
     return res.json({ success: true, data });
@@ -508,21 +556,24 @@ router.get('/children/:studentId/progress', async (req, res, next) => {
 
 router.get('/children/:studentId/fees', async (req, res, next) => {
   try {
+    const paymentScopeMatch = req.tenantScope?.schoolFilter || {};
     const data = await getDatabase()
       .collection('invoices')
       .aggregate([
-        { $match: { studentId: req.parentChild.id } },
+        { $match: scopedParentQuery(req, { studentId: req.parentChild.id }) },
         {
           $lookup: {
             from: 'payments',
-            let: { invoiceId: '$id' },
+            let: { invoiceId: '$id', invoiceBranchId: '$branchId' },
             pipeline: [
               {
                 $match: {
+                  ...paymentScopeMatch,
                   $expr: {
                     $and: [
                       { $eq: ['$invoiceId', '$$invoiceId'] },
                       { $eq: ['$studentId', req.parentChild.id] },
+                      { $eq: ['$branchId', '$$invoiceBranchId'] },
                       { $in: ['$status', ['confirmed', 'pending_verification']] },
                     ],
                   },
@@ -657,43 +708,49 @@ router.get('/children/:studentId/fees', async (req, res, next) => {
 router.get('/children/:studentId/feedback', async (req, res, next) => {
   try {
     const studentId = req.parentChild.id;
+    const homeworkScopeMatch = scopedParentQuery(req, {});
     const [homework, results, progress] = await Promise.all([
       getDatabase()
         .collection('submissions')
         .aggregate([
           {
-            $match: {
-              studentId,
-              $or: [
-                { teacherFeedback: { $type: 'string', $ne: '' } },
-                { feedback: { $type: 'string', $ne: '' } },
-              ],
-            },
+            $match: scopedParentQuery(
+              req,
+              {
+                studentId,
+                $or: [
+                  { teacherFeedback: { $type: 'string', $ne: '' } },
+                  { feedback: { $type: 'string', $ne: '' } },
+                ],
+              },
+              { includeBranch: false },
+            ),
           },
-            {
-              $lookup: {
-                from: 'homework',
-                let: { submissionHomeworkId: '$homeworkId' },
-                pipeline: [
-                  {
-                    $match: {
-                      $expr: {
-                        $or: [
-                          { $eq: ['$id', '$$submissionHomeworkId'] },
-                          {
-                            $eq: [
-                              { $toString: '$_id' },
-                              '$$submissionHomeworkId',
-                            ],
-                          },
-                        ],
-                      },
+          {
+            $lookup: {
+              from: 'homework',
+              let: { submissionHomeworkId: '$homeworkId' },
+              pipeline: [
+                {
+                  $match: {
+                    ...homeworkScopeMatch,
+                    $expr: {
+                      $or: [
+                        { $eq: ['$id', '$$submissionHomeworkId'] },
+                        {
+                          $eq: [
+                            { $toString: '$_id' },
+                            '$$submissionHomeworkId',
+                          ],
+                        },
+                      ],
                     },
                   },
-                ],
-                as: 'homework',
-              },
+                },
+              ],
+              as: 'homework',
             },
+          },
           { $unwind: { path: '$homework', preserveNullAndEmptyArrays: true } },
           { $project: { fileData: 0 } },
           { $sort: { submittedAt: -1 } },
@@ -701,33 +758,37 @@ router.get('/children/:studentId/feedback', async (req, res, next) => {
         .toArray(),
       getDatabase()
         .collection('results')
-        .find({
-          $and: [
-            { studentId },
-            publishedFilter(),
-            {
-              $or: [
-                { teacherFeedback: { $type: 'string', $ne: '' } },
-                { feedback: { $type: 'string', $ne: '' } },
-              ],
-            },
-          ],
-        })
+        .find(
+          scopedParentQuery(req, {
+            $and: [
+              { studentId },
+              publishedFilter(),
+              {
+                $or: [
+                  { teacherFeedback: { $type: 'string', $ne: '' } },
+                  { feedback: { $type: 'string', $ne: '' } },
+                ],
+              },
+            ],
+          }),
+        )
         .sort({ publishedAt: -1 })
         .toArray(),
       getDatabase()
         .collection('progress')
-        .find({
-          $and: [
-            ownedChildFilter(req.parentChild, publishedFilter()),
-            {
-              $or: [
-                { teacherFeedback: { $type: 'string', $ne: '' } },
-                { feedback: { $type: 'string', $ne: '' } },
-              ],
-            },
-          ],
-        })
+        .find(
+          scopedParentQuery(req, {
+            $and: [
+              ownedChildFilter(req.parentChild, publishedFilter()),
+              {
+                $or: [
+                  { teacherFeedback: { $type: 'string', $ne: '' } },
+                  { feedback: { $type: 'string', $ne: '' } },
+                ],
+              },
+            ],
+          }),
+        )
         .sort({ updatedAt: -1 })
         .toArray(),
     ]);
@@ -741,6 +802,7 @@ module.exports = router;
 module.exports.__test = {
   getVerifiedChild,
   ownedChildFilter,
+  scopedParentQuery,
   publishedFilter,
   requireParentContext,
   listVerifiedChildren,

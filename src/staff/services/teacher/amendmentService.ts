@@ -1,4 +1,4 @@
-﻿import { apiClient } from '../api/apiClient';
+import { apiClient } from '../api/apiClient';
 import type { TeacherPeriod } from '../teacher/timetableService';
 import type { AttendanceStatus } from '../teacher/attendanceService';
 export interface AmendmentHistory {

@@ -70,7 +70,7 @@ export default function TeacherRosterScreen({
                 ? 'No matching students.'
                 : 'No active students in this assigned section.'}
             </Text>
-          ) : null
+          ) : undefined
         }
         renderItem={({ item }) => (
           <View style={styles.card}>

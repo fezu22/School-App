@@ -29,8 +29,12 @@ function availableInvoiceCents(invoice, totals) {
 function canSettleParentPayment(invoice, payment, totals) {
   const amountCents = cents(payment?.amount);
   const totalCents = cents(invoice?.amount);
+  const invoiceSchool = invoice?.schoolId == null ? '' : String(invoice.schoolId);
+  const paymentSchool = payment?.schoolId == null ? '' : String(payment.schoolId);
+  const schoolMatches = (!invoiceSchool && !paymentSchool) || (invoiceSchool && paymentSchool && invoiceSchool === paymentSchool);
   return Boolean(invoice && Number.isSafeInteger(amountCents) && amountCents > 0 &&
     Number.isSafeInteger(totalCents) && totalCents > 0 &&
+    schoolMatches &&
     String(invoice.id) === String(payment.invoiceId) && String(invoice.studentId) === String(payment.studentId) && String(invoice.branchId) === String(payment.branchId) &&
     String(invoice.currency || 'PKR').toUpperCase() === String(payment.currency || '').toUpperCase() &&
     totals.paidCents + totals.pendingCents + totals.parentReservedCents + amountCents <= totalCents);
@@ -38,7 +42,12 @@ function canSettleParentPayment(invoice, payment, totals) {
 
 async function lockInvoice(invoices, invoice, session) {
   const result = await invoices.updateOne(
-    { _id: invoice._id, id: invoice.id, branchId: invoice.branchId },
+    {
+      _id: invoice._id,
+      id: invoice.id,
+      branchId: invoice.branchId,
+      ...(invoice.schoolId ? { schoolId: invoice.schoolId } : {}),
+    },
     { $inc: { paymentReservationVersion: 1 } },
     { session },
   );
@@ -52,20 +61,25 @@ async function lockInvoice(invoices, invoice, session) {
 
 async function invoiceReservedCents(db, invoice, session, excludeParentPaymentId) {
   const options = session ? { session } : {};
-  const payments = await db.collection('payments').find({
+  const invoiceSchool = invoice?.schoolId == null ? '' : String(invoice.schoolId);
+  const sameSchool = item => {
+    const itemSchool = item?.schoolId == null ? '' : String(item.schoolId);
+    return !invoiceSchool ? !itemSchool : (!itemSchool || itemSchool === invoiceSchool);
+  };
+  const payments = (await db.collection('payments').find({
     invoiceId: invoice.id,
     studentId: invoice.studentId,
     branchId: invoice.branchId,
     status: { $in: ['confirmed', 'pending_verification'] },
-  }, options).toArray();
-  const parentPayments = await db.collection('parentOnlinePayments').find({
+  }, options).toArray()).filter(sameSchool);
+  const parentPayments = (await db.collection('parentOnlinePayments').find({
     invoiceId: invoice.id,
     studentId: invoice.studentId,
     branchId: invoice.branchId,
     status: { $in: ACTIVE_PARENT_RESERVATION_STATUSES },
     activeKey: 'active',
     ...(excludeParentPaymentId ? { _id: { $ne: excludeParentPaymentId } } : {}),
-  }, options).toArray();
+  }, options).toArray()).filter(sameSchool);
   return {
     paidCents: payments.reduce((sum, item) => sum + (item.status === 'confirmed' ? cents(item.amount) : 0), 0),
     pendingCents: payments.reduce((sum, item) => sum + (item.status === 'pending_verification' ? cents(item.amount) : 0), 0),

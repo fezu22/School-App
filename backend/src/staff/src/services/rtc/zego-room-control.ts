@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { resolveZegoCredentials } from '../../../../zegoConfig';
 
 // Separate from the pure credential signer: never call this inside a retryable
 // Mongo transaction. Official KickoutUser, signature version 2.0.
@@ -8,14 +9,12 @@ export async function kickZegoUser(
   request: typeof fetch = fetch,
   until = new Date(Date.now() + 600000),
 ) {
-  const appId = Number(process.env.ZEGOCLOUD_APP_ID);
-  const secret = process.env.ZEGOCLOUD_SERVER_SECRET ?? '';
-  if (
-    !Number.isInteger(appId) ||
-    appId <= 0 ||
-    !/^[\x21-\x7e]{32}$/.test(secret)
-  )
+  const creds = resolveZegoCredentials(process.env);
+  if (!creds.valid) {
     throw new Error('Provider control unavailable');
+  }
+  const appId = creds.appId;
+  const secret = (creds as { serverSecret: string }).serverSecret;
   const call = async (parameters: Record<string, string>) => {
     const nonce = randomBytes(8).toString('hex');
     const timestamp = String(Math.floor(Date.now() / 1000));

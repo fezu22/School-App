@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { after, afterEach, before, beforeEach, mock, test } from 'node:test';
 import {seedCurriculumFixtures} from './helpers/curriculum-fixtures';
 import type { Server } from 'node:http';

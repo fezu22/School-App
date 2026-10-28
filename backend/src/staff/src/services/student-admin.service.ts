@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import mongoose, { type ClientSession } from 'mongoose';
 import User from '../models/user';
 import Student from '../models/student';
@@ -24,6 +24,8 @@ import { createUser } from './auth.service';
 import { createStudent } from './student.service';
 import { enrollmentTarget, enrollmentDTO } from './student-enrollment.service';
 import { schoolToday } from './school-date.service';
+
+const FALLBACK_OPERATION_HMAC_KEY = randomBytes(32);
 
 const missing = () =>
   new RequestContractError(404, 'Student profile is unavailable');
@@ -223,7 +225,10 @@ export async function admitStudent(
     throw new RequestContractError(400, 'Invalid operation identity');
   // Credentials are never stored in the operation result/log. A keyed digest
   // prevents password guessing from an ordinary request-fingerprint record.
-  const fingerprint = createHmac('sha256', process.env.JWT_SECRET ?? '')
+  const hmacKey = process.env.JWT_SECRET && process.env.JWT_SECRET.trim().length > 0
+    ? process.env.JWT_SECRET
+    : FALLBACK_OPERATION_HMAC_KEY;
+  const fingerprint = createHmac('sha256', hmacKey)
     .update(
       JSON.stringify([
         profile,

@@ -8,8 +8,8 @@ function notificationIdentity(id) {
   return identity;
 }
 
-function recipientFilter(userId, role) {
-  return { recipientUserId: userId, recipientRole: role };
+function recipientFilter(userId, role, extraScope = {}) {
+  return { recipientUserId: userId, recipientRole: role, ...extraScope };
 }
 
 function createUserNotificationRouter(role) {
@@ -27,7 +27,9 @@ function createUserNotificationRouter(role) {
         .status(403)
         .json({ success: false, error: `${role} access is required.` });
     }
-    req.notificationRecipient = recipientFilter(userId, role);
+    const schoolFilter =
+      req.tenantScope?.schoolFilter || req.financeContext?.schoolFilter || {};
+    req.notificationRecipient = recipientFilter(userId, role, schoolFilter);
     return next();
   });
 

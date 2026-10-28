@@ -2,14 +2,16 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '../src/mobileApp');
-const extensions = ['', '.js', '.jsx', '.json', '.png', '.webp'];
+const extensions = ['', '.js', '.jsx', '.ts', '.tsx', '.json', '.png', '.webp'];
 const unresolved = [];
 
 function resolves(target) {
   return (
     extensions.some(extension => fs.existsSync(target + extension)) ||
     fs.existsSync(path.join(target, 'index.js')) ||
-    fs.existsSync(path.join(target, 'index.jsx'))
+    fs.existsSync(path.join(target, 'index.jsx')) ||
+    fs.existsSync(path.join(target, 'index.ts')) ||
+    fs.existsSync(path.join(target, 'index.tsx'))
   );
 }
 

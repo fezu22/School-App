@@ -5,15 +5,22 @@ const { getClient, getDatabase } = require('./database');
 const {
   apiId,
   referenceValues,
-  resolveBranchReference,
   resolveUserForRole,
+  resolveUserReference,
 } = require('./identityReferenceAdapter');
+const {
+  combineTenantFilter,
+  resolveVerifiedTenantScope,
+} = require('./schoolAccess');
 const studentRoutes = require('./studentRoutes');
 const parentRoutes = require('./parentRoutes');
 const { createUserNotificationRouter } = require('./userNotificationRoutes');
 const { authenticateRequest } = require('./auth');
 const authRoutes = require('./authRoutes');
 const applicationReviewRoutes = require('./applicationReviewRoutes');
+const { createUltraAdminRouter } = require('./ultraAdminRoutes');
+const { createDlpRouter } = require('./dlpRoutes');
+const { createRecordedLessonRouter } = require('./recordedLessonRoutes');
 const {
   PARTIAL_INVOICE_STATUS,
   normalizeInvoiceStatus,
@@ -63,11 +70,27 @@ function ensurePaymentReferenceIndex(payments) {
   return paymentReferenceIndexPromise;
 }
 
-async function getInvoicePaymentTotals(payments, invoiceId, branchValues, session) {
+function financeSchoolFilter(financeContext) {
+  return financeContext?.schoolFilter || {};
+}
+
+function scopedFinanceMatch(financeContext, match = {}) {
+  const schoolFilter = financeSchoolFilter(financeContext);
+  if (!schoolFilter || Object.keys(schoolFilter).length === 0) return match;
+  return { ...match, ...schoolFilter };
+}
+
+async function getInvoicePaymentTotals(payments, invoiceId, branchValues, session, schoolFilter = {}) {
   const [totals] = await payments
     .aggregate(
       [
-        { $match: { invoiceId, branchId: { $in: branchValues } } },
+        {
+          $match: {
+            invoiceId,
+            branchId: { $in: branchValues },
+            ...schoolFilter,
+          },
+        },
         {
           $group: {
             _id: null,
@@ -120,15 +143,25 @@ function requireFinanceContext(req, res, next) {
   (async () => {
     const db = getDatabase();
     const identity = await resolveUserForRole(db, userId, 'finance');
-    const branch = await resolveBranchReference(db, identity.branchId);
-    req.authenticatedIdentity = identity;
-    req.financeContext = {
+    const tenantScope = await resolveVerifiedTenantScope(db, identity, { requireBranch: true });
+    const branch = tenantScope.branch;
+    const context = {
       userId: apiId(identity),
       branchId,
       branch,
       branchValues: referenceValues(branch, '_id'),
       branchFilter: { $in: referenceValues(branch, '_id') },
     };
+    Object.defineProperties(context, {
+      schoolId: { value: tenantScope.schoolId, enumerable: false, configurable: true },
+      schoolIdHex: { value: tenantScope.schoolIdHex, enumerable: false, configurable: true },
+      schoolValues: { value: tenantScope.schoolValues, enumerable: false, configurable: true },
+      schoolFilter: { value: tenantScope.schoolFilter, enumerable: false, configurable: true },
+      tenantScope: { value: tenantScope, enumerable: false, configurable: true },
+    });
+    req.authenticatedIdentity = identity;
+    req.financeContext = context;
+    req.tenantScope = tenantScope;
     return next();
   })().catch(next);
 }
@@ -139,7 +172,16 @@ const notFound = (res, entity, id) =>
     .json({ success: false, error: `${entity} ${id} was not found` });
 
 router.use('/auth', authRoutes);
+router.use('/ultra-admin', createUltraAdminRouter());
+// Public card provider webhook (signature-verified using raw body; mounted before Bearer auth)
+router.post(
+  ['/payments/webhooks/card', '/parent/payments/webhooks/card', '/parents/me/payments/webhooks/card'],
+  express.raw({ type: 'application/json' }),
+  (req, res, next) => require('./parentPaymentRoutes').handleCardWebhook(req, res, next),
+);
 router.use(authenticateRequest);
+router.use('/dlp', createDlpRouter());
+router.use('/recorded-lessons', createRecordedLessonRouter());
 router.use('/exam-papers', require('./examPapers').createExamPaperRouter());
 router.use('/students/me', studentRoutes);
 router.use('/parents/me', parentRoutes);
@@ -239,11 +281,12 @@ function financeListFilters(query) {
   return { range, studentId, method };
 }
 
-function financePaymentMatch(branchValues, status, filters) {
+function financePaymentMatch(branchValues, status, filters, schoolFilter = null) {
   const { range, studentId, method } = filters;
   const match = {
     branchId: { $in: Array.isArray(branchValues) ? branchValues : [branchValues] },
     status,
+    ...(schoolFilter ? schoolFilter : {}),
   };
   if (studentId) match.studentId = studentId;
   if (method) match.method = method;
@@ -285,18 +328,36 @@ function verifiedDirectoryLinkFilter(parentUserId, studentIds) {
   };
 }
 
-async function linkedStudentIds(parentUserId) {
+async function resolveDirectoryTenantScope(req) {
+  if (req.tenantScope) return req.tenantScope;
+  const db = getDatabase();
+  const identity =
+    req.authenticatedUserRecord ||
+    (req.user?.id ? await resolveUserReference(db, req.user.id) : null);
+  return resolveVerifiedTenantScope(db, identity, { requireBranch: true });
+}
+
+async function linkedStudentIds(parentUserId, tenantScope = null) {
   const links = await getDatabase()
     .collection('parentChildLinks')
-    .find(verifiedDirectoryLinkFilter(parentUserId))
+    .find(
+      tenantScope
+        ? combineTenantFilter(tenantScope, verifiedDirectoryLinkFilter(parentUserId), { includeBranch: false })
+        : verifiedDirectoryLinkFilter(parentUserId),
+    )
     .toArray();
   return [...new Set(links.map(link => link.studentId).filter(Boolean))];
 }
 
-async function financeBranchStudentIds(branchId) {
+async function financeBranchStudentIds(branchId, tenantScope = null) {
   return getDatabase()
     .collection('students')
-    .distinct('id', { branchId });
+    .distinct(
+      'id',
+      tenantScope
+        ? combineTenantFilter(tenantScope, { branchId })
+        : { branchId },
+    );
 }
 
 function studentDirectoryFilter(user, accessibleStudentIds, requestedId) {
@@ -375,13 +436,17 @@ function appendDirectorySearch(filter, rawQuery) {
 
 router.get('/students', async (req, res, next) => {
   try {
+    if (!['student', 'parent', 'finance'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, error: 'Student directory access is denied.' });
+    }
+    const tenantScope = await resolveDirectoryTenantScope(req);
     const accessibleIds =
-      req.user.role === 'parent' ? await linkedStudentIds(req.user.id) : [];
+      req.user.role === 'parent' ? await linkedStudentIds(req.user.id, tenantScope) : [];
     const accessFilter = studentDirectoryFilter(req.user, accessibleIds);
     if (!accessFilter) {
       return res.status(403).json({ success: false, error: 'Student directory access is denied.' });
     }
-    const searched = appendDirectorySearch(accessFilter, req.query.q);
+    const searched = appendDirectorySearch(combineTenantFilter(tenantScope, accessFilter), req.query.q);
     if (searched.error) {
       return res.status(400).json({ success: false, error: searched.error });
     }
@@ -398,15 +463,19 @@ router.get('/students', async (req, res, next) => {
 
 router.get('/students/:id', async (req, res, next) => {
   try {
+    if (!['student', 'parent', 'finance'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, error: 'Student directory access is denied.' });
+    }
+    const tenantScope = await resolveDirectoryTenantScope(req);
     const accessibleIds =
-      req.user.role === 'parent' ? await linkedStudentIds(req.user.id) : [];
+      req.user.role === 'parent' ? await linkedStudentIds(req.user.id, tenantScope) : [];
     const filter = studentDirectoryFilter(req.user, accessibleIds, req.params.id);
     if (!filter) {
       return res.status(403).json({ success: false, error: 'Student directory access is denied.' });
     }
     const student = await getDatabase()
       .collection('students')
-      .findOne(filter, { projection: SAFE_STUDENT_DIRECTORY_FIELDS });
+      .findOne(combineTenantFilter(tenantScope, filter), { projection: SAFE_STUDENT_DIRECTORY_FIELDS });
     return student
       ? res.json({ success: true, data: student })
       : notFound(res, 'Student', req.params.id);
@@ -417,16 +486,20 @@ router.get('/students/:id', async (req, res, next) => {
 
 router.get('/parents', async (req, res, next) => {
   try {
+    if (!['parent', 'finance'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, error: 'Parent directory access is denied.' });
+    }
+    const tenantScope = await resolveDirectoryTenantScope(req);
     let accessibleParentIds = [];
     let accessibleStudentIds = [];
     if (req.user.role === 'parent') {
       accessibleParentIds = [req.user.id];
-      accessibleStudentIds = await linkedStudentIds(req.user.id);
+      accessibleStudentIds = await linkedStudentIds(req.user.id, tenantScope);
     } else if (req.user.role === 'finance' && req.user.branchId) {
-      accessibleStudentIds = await financeBranchStudentIds(req.user.branchId);
+      accessibleStudentIds = await financeBranchStudentIds(req.user.branchId, tenantScope);
       const links = accessibleStudentIds.length
         ? await getDatabase().collection('parentChildLinks')
-            .find(verifiedDirectoryLinkFilter(null, accessibleStudentIds))
+            .find(combineTenantFilter(tenantScope, verifiedDirectoryLinkFilter(null, accessibleStudentIds), { includeBranch: false }))
             .toArray()
         : [];
       accessibleParentIds = [...new Set(links.map(link => link.parentUserId).filter(Boolean))];
@@ -436,16 +509,16 @@ router.get('/parents', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Parent directory access is denied.' });
     }
     const parents = await getDatabase().collection('parents')
-      .find(filter, { projection: SAFE_PARENT_DIRECTORY_FIELDS })
+      .find(combineTenantFilter(tenantScope, filter), { projection: SAFE_PARENT_DIRECTORY_FIELDS })
       .limit(100)
       .toArray();
     const children = accessibleStudentIds.length
       ? await getDatabase().collection('students')
           .find(
-            {
+            combineTenantFilter(tenantScope, {
               id: { $in: accessibleStudentIds },
               ...(req.user.role === 'finance' ? { branchId: req.user.branchId } : {}),
-            },
+            }),
             { projection: SAFE_STUDENT_DIRECTORY_FIELDS },
           )
           .limit(500)
@@ -453,7 +526,7 @@ router.get('/parents', async (req, res, next) => {
       : [];
     const links = accessibleStudentIds.length
       ? await getDatabase().collection('parentChildLinks')
-          .find(verifiedDirectoryLinkFilter(null, accessibleStudentIds))
+          .find(combineTenantFilter(tenantScope, verifiedDirectoryLinkFilter(null, accessibleStudentIds), { includeBranch: false }))
           .toArray()
       : [];
     const data = parents.map(parent => ({
@@ -472,16 +545,20 @@ router.get('/parents', async (req, res, next) => {
 
 router.get('/parents/:id', async (req, res, next) => {
   try {
+    if (!['parent', 'finance'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, error: 'Parent directory access is denied.' });
+    }
+    const tenantScope = await resolveDirectoryTenantScope(req);
     let accessibleParentIds = [];
     let accessibleStudentIds = [];
     if (req.user.role === 'parent') {
       accessibleParentIds = [req.user.id];
-      accessibleStudentIds = await linkedStudentIds(req.user.id);
+      accessibleStudentIds = await linkedStudentIds(req.user.id, tenantScope);
     } else if (req.user.role === 'finance' && req.user.branchId) {
-      accessibleStudentIds = await financeBranchStudentIds(req.user.branchId);
+      accessibleStudentIds = await financeBranchStudentIds(req.user.branchId, tenantScope);
       const links = accessibleStudentIds.length
         ? await getDatabase().collection('parentChildLinks')
-            .find(verifiedDirectoryLinkFilter(null, accessibleStudentIds))
+            .find(combineTenantFilter(tenantScope, verifiedDirectoryLinkFilter(null, accessibleStudentIds), { includeBranch: false }))
             .toArray()
         : [];
       accessibleParentIds = [...new Set(links.map(link => link.parentUserId).filter(Boolean))];
@@ -491,7 +568,7 @@ router.get('/parents/:id', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Parent directory access is denied.' });
     }
     const parent = await getDatabase().collection('parents').findOne(
-      filter,
+      combineTenantFilter(tenantScope, filter),
       { projection: SAFE_PARENT_DIRECTORY_FIELDS },
     );
     if (!parent) return notFound(res, 'Parent', req.params.id);
@@ -499,21 +576,21 @@ router.get('/parents/:id', async (req, res, next) => {
     const permittedStudentIds = req.user.role === 'parent'
       ? accessibleStudentIds
       : (await getDatabase().collection('parentChildLinks')
-          .find(verifiedDirectoryLinkFilter(parentUserId, accessibleStudentIds))
+          .find(combineTenantFilter(tenantScope, verifiedDirectoryLinkFilter(parentUserId, accessibleStudentIds), { includeBranch: false }))
           .toArray())
           .map(link => link.studentId);
     const children = permittedStudentIds.length
       ? await getDatabase().collection('students').find(
-          {
+          combineTenantFilter(tenantScope, {
             id: { $in: permittedStudentIds },
             ...(req.user.role === 'finance' ? { branchId: req.user.branchId } : {}),
-          },
+          }),
           { projection: SAFE_STUDENT_DIRECTORY_FIELDS },
         ).limit(100).toArray()
       : [];
     const notices = req.user.role === 'parent'
       ? await getDatabase().collection('notices')
-          .find({ active: { $ne: false } })
+          .find(combineTenantFilter(tenantScope, { active: { $ne: false } }))
           .sort({ postedAt: -1 })
           .limit(100)
           .toArray()
@@ -535,7 +612,7 @@ router.get('/finance/students', async (req, res, next) => {
         .status(400)
         .json({ success: false, error: 'Search query is too long.' });
     }
-    const filter = { branchId: req.financeContext.branchFilter };
+    const filter = scopedFinanceMatch(req.financeContext);
     if (query) {
       const pattern = escapedRegex(query);
       filter.$or = [
@@ -575,17 +652,16 @@ router.get('/finance/summary', async (req, res, next) => {
     const { range, studentId, method } = filters;
     const invoices = getDatabase().collection('invoices');
     const payments = getDatabase().collection('payments');
-    const invoiceFilter = { branchId: req.financeContext.branchFilter };
+    const invoiceFilter = scopedFinanceMatch(req.financeContext);
     if (studentId) invoiceFilter.studentId = studentId;
     if (range.from || range.to) {
       invoiceFilter.dueDate = {};
       if (range.from) invoiceFilter.dueDate.$gte = range.from;
       if (range.to) invoiceFilter.dueDate.$lte = range.to;
     }
-    const collectionFilter = {
-      branchId: req.financeContext.branchFilter,
+    const collectionFilter = scopedFinanceMatch(req.financeContext, {
       status: 'confirmed',
-    };
+    });
     if (studentId) collectionFilter.studentId = studentId;
     if (method) collectionFilter.method = method;
     if (range.filter) collectionFilter.confirmedAt = range.filter;
@@ -608,6 +684,7 @@ router.get('/finance/summary', async (req, res, next) => {
                     pipeline: [
                       {
                         $match: {
+                          ...(req.financeContext.schoolFilter || {}),
                           $expr: {
                             $and: [
                               { $eq: ['$invoiceId', '$$invoiceId'] },
@@ -638,6 +715,7 @@ router.get('/finance/summary', async (req, res, next) => {
               pipeline: [
                 {
                   $match: {
+                    ...(req.financeContext.schoolFilter || {}),
                     $expr: {
                       $and: [
                         { $eq: ['$invoiceId', '$$invoiceId'] },
@@ -681,6 +759,7 @@ router.get('/finance/summary', async (req, res, next) => {
                   pipeline: [
                     {
                       $match: {
+                        ...(req.financeContext.schoolFilter || {}),
                         $expr: {
                           $and: [
                             { $eq: ['$invoiceId', '$$invoiceId'] },
@@ -747,11 +826,10 @@ router.get('/finance/invoices', async (req, res, next) => {
     }
     if (grade.length > 40)
       return res.status(400).json({ success: false, error: 'Grade filter is too long.' });
-    const match = {
-      branchId: req.financeContext.branchFilter,
+    const match = scopedFinanceMatch(req.financeContext, {
       ...financeInvoiceStatusMatch(status),
       ...(studentId ? { studentId } : {}),
-    };
+    });
     if (range.from || range.to) {
       match.dueDate = {};
       if (range.from) match.dueDate.$gte = range.from;
@@ -771,6 +849,7 @@ router.get('/finance/invoices', async (req, res, next) => {
                   pipeline: [
                     {
                       $match: {
+                        ...(req.financeContext.schoolFilter || {}),
                         $expr: {
                           $and: [
                             { $eq: ['$invoiceId', '$$invoiceId'] },
@@ -801,6 +880,7 @@ router.get('/finance/invoices', async (req, res, next) => {
             pipeline: [
               {
                 $match: {
+                  ...(req.financeContext.schoolFilter || {}),
                   $expr: {
                     $and: [
                       { $eq: ['$id', '$$studentId'] },
@@ -878,7 +958,7 @@ router.get('/finance/dues', async (req, res, next) => {
         error: `method must be one of: ${FINANCE_PAYMENT_METHODS.join(', ')}.`,
       });
     }
-    const match = { branchId: req.financeContext.branchFilter };
+    const match = scopedFinanceMatch(req.financeContext);
     if (studentId) match.studentId = studentId;
     if (range.from || range.to) {
       match.dueDate = {};
@@ -897,6 +977,7 @@ router.get('/finance/dues', async (req, res, next) => {
             pipeline: [
               {
                 $match: {
+                  ...(req.financeContext.schoolFilter || {}),
                   $expr: {
                     $and: [
                       { $eq: ['$invoiceId', '$$invoiceId'] },
@@ -942,6 +1023,7 @@ router.get('/finance/dues', async (req, res, next) => {
             pipeline: [
               {
                 $match: {
+                  ...(req.financeContext.schoolFilter || {}),
                   $expr: {
                     $and: [
                       { $eq: ['$id', '$$studentId'] },
@@ -1044,7 +1126,7 @@ router.get('/finance/vouchers/:code/verify', async (req, res, next) => {
         .json({ success: false, error: 'Voucher code is required.' });
     const invoice = await getDatabase()
       .collection('invoices')
-      .findOne({ voucherCode: code, branchId: req.financeContext.branchFilter });
+      .findOne(scopedFinanceMatch(req.financeContext, { voucherCode: code }));
     if (!invoice)
       return res.status(404).json({
         success: false,
@@ -1054,13 +1136,15 @@ router.get('/finance/vouchers/:code/verify', async (req, res, next) => {
     const student = await getDatabase()
       .collection('students')
       .findOne(
-        { id: invoice.studentId, branchId: req.financeContext.branchFilter },
+        scopedFinanceMatch(req.financeContext, { id: invoice.studentId }),
         { projection: { name: 1, fullName: 1 } },
       );
     const totals = await getInvoicePaymentTotals(
       getDatabase().collection('payments'),
       invoice.id,
       req.financeContext.branchValues,
+      undefined,
+      req.financeContext.schoolFilter,
     );
     const { paidAmount, pendingAmount } = totals;
     const balanceDue = Math.max(Number(invoice.amount) - paidAmount, 0);
@@ -1116,6 +1200,7 @@ router.get('/finance/payments', async (req, res, next) => {
       req.financeContext.branchValues,
       status,
       filters,
+      req.financeContext.schoolFilter,
     );
     const data = await getDatabase()
       .collection('payments')
@@ -1135,11 +1220,10 @@ router.get('/finance/payments', async (req, res, next) => {
 router.get('/finance/reconciliation/parent-payments', async (req, res, next) => {
   try {
     const data = await getDatabase().collection('parentOnlinePayments').find(
-      {
-        branchId: req.financeContext.branchFilter,
+      scopedFinanceMatch(req.financeContext, {
         activeKey: 'active',
         status: { $in: ['initiated', 'pending', 'reconciliation_required'] },
-      },
+      }),
       {
         projection: {
           parentUserId: 0,
@@ -1193,16 +1277,15 @@ router.post('/finance/payments/:paymentId/verify', async (req, res, next) => {
   try {
     await session.withTransaction(async () => {
       const payment = await payments.findOne(
-        {
+        scopedFinanceMatch(actor, {
           _id: new ObjectId(paymentId),
-          branchId: actor.branchFilter,
           status: 'pending_verification',
-        },
+        }),
         { session },
       );
       if (!payment) {
         const existing = await payments.findOne(
-          { _id: new ObjectId(paymentId), branchId: actor.branchFilter },
+          scopedFinanceMatch(actor, { _id: new ObjectId(paymentId) }),
           { session, projection: { _id: 1, status: 1 } },
         );
         const error = new Error(
@@ -1217,7 +1300,7 @@ router.post('/finance/payments/:paymentId/verify', async (req, res, next) => {
       let invoice = await db
         .collection('invoices')
         .findOne(
-          { id: payment.invoiceId, branchId: actor.branchFilter },
+          scopedFinanceMatch(actor, { id: payment.invoiceId }),
           { session },
         );
       if (!invoice) {
@@ -1231,6 +1314,7 @@ router.post('/finance/payments/:paymentId/verify', async (req, res, next) => {
         payment.invoiceId,
         actor.branchValues,
         session,
+        actor.schoolFilter,
       );
       const reservations = await invoiceReservedCents(db, invoice, session);
       const amountTotal = Number(invoice.amount);
@@ -1251,11 +1335,10 @@ router.post('/finance/payments/:paymentId/verify', async (req, res, next) => {
       const now = new Date();
       const receiptNumber = `RCT-${crypto.randomUUID()}`;
       const updated = await payments.updateOne(
-        {
+        scopedFinanceMatch(actor, {
           _id: payment._id,
-          branchId: actor.branchFilter,
           status: 'pending_verification',
-        },
+        }),
         {
           $set: {
             status: 'confirmed',
@@ -1280,7 +1363,7 @@ router.post('/finance/payments/:paymentId/verify', async (req, res, next) => {
       const balanceDue =
         Math.max(totalCents - paidCents - paymentCents, 0) / 100;
       const invoiceUpdate = await db.collection('invoices').updateOne(
-        { _id: invoice._id, branchId: actor.branchFilter },
+        scopedFinanceMatch(actor, { _id: invoice._id }),
         {
           $set: {
             paidAmount,
@@ -1305,6 +1388,7 @@ router.post('/finance/payments/:paymentId/verify', async (req, res, next) => {
         {
           id: crypto.randomUUID(),
           event: 'payment.verified',
+          ...(actor.schoolId ? { schoolId: actor.schoolId } : {}),
           branchId: invoice.branchId,
           actorUserId: actor.userId,
           invoiceId: payment.invoiceId,
@@ -1362,16 +1446,15 @@ router.post('/finance/payments/:paymentId/reject', async (req, res, next) => {
   try {
     await session.withTransaction(async () => {
       const payment = await payments.findOne(
-        {
+        scopedFinanceMatch(actor, {
           _id: new ObjectId(paymentId),
-          branchId: actor.branchFilter,
           status: 'pending_verification',
-        },
+        }),
         { session },
       );
       if (!payment) {
         const existing = await payments.findOne(
-          { _id: new ObjectId(paymentId), branchId: actor.branchFilter },
+          scopedFinanceMatch(actor, { _id: new ObjectId(paymentId) }),
           { session, projection: { status: 1 } },
         );
         const error = new Error(
@@ -1383,7 +1466,7 @@ router.post('/finance/payments/:paymentId/reject', async (req, res, next) => {
         throw error;
       }
       const invoice = await db.collection('invoices').findOne(
-        { id: payment.invoiceId, branchId: actor.branchFilter },
+        scopedFinanceMatch(actor, { id: payment.invoiceId }),
         { session },
       );
       if (!invoice) {
@@ -1396,14 +1479,14 @@ router.post('/finance/payments/:paymentId/reject', async (req, res, next) => {
         payment.invoiceId,
         actor.branchValues,
         session,
+        actor.schoolFilter,
       );
       const now = new Date();
       const updated = await payments.updateOne(
-        {
+        scopedFinanceMatch(actor, {
           _id: payment._id,
-          branchId: actor.branchFilter,
           status: 'pending_verification',
-        },
+        }),
         {
           $set: {
             status: 'rejected',
@@ -1425,7 +1508,7 @@ router.post('/finance/payments/:paymentId/reject', async (req, res, next) => {
         payment.amount,
       );
       const invoiceUpdate = await db.collection('invoices').updateOne(
-        { _id: invoice._id, branchId: actor.branchFilter },
+        scopedFinanceMatch(actor, { _id: invoice._id }),
         {
           $set: {
             ...invoiceState,
@@ -1443,6 +1526,7 @@ router.post('/finance/payments/:paymentId/reject', async (req, res, next) => {
         {
           id: crypto.randomUUID(),
           event: 'payment.rejected',
+          ...(actor.schoolId ? { schoolId: actor.schoolId } : {}),
           branchId: invoice.branchId,
           actorUserId: actor.userId,
           invoiceId: payment.invoiceId,
@@ -1538,11 +1622,10 @@ router.post('/finance/payments', async (req, res, next) => {
       ensurePaymentReferenceIndex(payments),
     ]);
     const actor = req.financeContext;
-    const idempotencyFilter = {
-      branchId: actor.branchFilter,
+    const idempotencyFilter = scopedFinanceMatch(actor, {
       createdByUserId: actor.userId,
       idempotencyKey,
-    };
+    });
     const session = getClient().startSession();
     let response;
     try {
@@ -1576,7 +1659,7 @@ router.post('/finance/payments', async (req, res, next) => {
 
         let invoice = await db
           .collection('invoices')
-          .findOne({ id: invoiceId, branchId: actor.branchFilter }, { session });
+          .findOne(scopedFinanceMatch(actor, { id: invoiceId }), { session });
         if (!invoice) {
           const missing = new Error(
             'Invoice was not found in this Finance branch.',
@@ -1599,6 +1682,7 @@ router.post('/finance/payments', async (req, res, next) => {
           invoiceId,
           actor.branchValues,
           session,
+          actor.schoolFilter,
         );
         const reservations = await invoiceReservedCents(db, invoice, session);
         const availableCents = Math.max(
@@ -1620,6 +1704,7 @@ router.post('/finance/payments', async (req, res, next) => {
 
         const now = new Date();
         const payment = {
+          ...(actor.schoolId ? { schoolId: actor.schoolId } : invoice.schoolId ? { schoolId: invoice.schoolId } : {}),
           invoiceId,
           studentId: invoice.studentId,
           branchId: invoice.branchId,
@@ -1635,7 +1720,7 @@ router.post('/finance/payments', async (req, res, next) => {
         };
         const inserted = await payments.insertOne(payment, { session });
         const invoiceUpdate = await db.collection('invoices').updateOne(
-          { _id: invoice._id, branchId: actor.branchFilter },
+          scopedFinanceMatch(actor, { _id: invoice._id }),
           {
             $set: {
               paidAmount: totals.paidAmount,
@@ -1665,6 +1750,7 @@ router.post('/finance/payments', async (req, res, next) => {
           {
             id: crypto.randomUUID(),
             event: 'payment.entry_created',
+            ...(actor.schoolId ? { schoolId: actor.schoolId } : {}),
             branchId: invoice.branchId,
             actorUserId: actor.userId,
             invoiceId,
@@ -1747,10 +1833,9 @@ router.get('/finance/receipts', async (req, res, next) => {
     if (filters.error)
       return res.status(400).json({ success: false, error: filters.error });
     const { range, studentId, method } = filters;
-    const match = {
-      branchId: req.financeContext.branchFilter,
+    const match = scopedFinanceMatch(req.financeContext, {
       status: 'confirmed',
-    };
+    });
     if (studentId) match.studentId = studentId;
     if (method) match.method = method;
     if (range.filter) match.confirmedAt = range.filter;
@@ -1765,6 +1850,7 @@ router.get('/finance/receipts', async (req, res, next) => {
             pipeline: [
               {
                 $match: {
+                  ...(req.financeContext.schoolFilter || {}),
                   $expr: {
                     $and: [
                       { $eq: ['$id', '$$invoiceId'] },
@@ -1785,6 +1871,7 @@ router.get('/finance/receipts', async (req, res, next) => {
             pipeline: [
               {
                 $match: {
+                  ...(req.financeContext.schoolFilter || {}),
                   $expr: {
                     $and: [
                       { $eq: ['$id', '$$studentId'] },
@@ -1833,11 +1920,10 @@ router.get('/finance/receipts/:paymentId', async (req, res, next) => {
     }
     const payment = await getDatabase()
       .collection('payments')
-      .findOne({
+      .findOne(scopedFinanceMatch(req.financeContext, {
         _id: new ObjectId(paymentId),
-        branchId: req.financeContext.branchFilter,
         status: 'confirmed',
-      });
+      }));
     if (!payment || !payment.receiptNumber) {
       return res
         .status(404)
@@ -1847,13 +1933,13 @@ router.get('/finance/receipts/:paymentId', async (req, res, next) => {
       getDatabase()
         .collection('invoices')
         .findOne(
-          { id: payment.invoiceId, branchId: req.financeContext.branchFilter },
+          scopedFinanceMatch(req.financeContext, { id: payment.invoiceId }),
           { projection: { id: 1, description: 1, amount: 1, currency: 1 } },
         ),
       getDatabase()
         .collection('students')
         .findOne(
-          { id: payment.studentId, branchId: req.financeContext.branchFilter },
+          scopedFinanceMatch(req.financeContext, { id: payment.studentId }),
           { projection: { id: 1, name: 1, fullName: 1 } },
         ),
     ]);
@@ -1882,10 +1968,9 @@ router.get('/finance/reports/collections', async (req, res, next) => {
     if (filters.error)
       return res.status(400).json({ success: false, error: filters.error });
     const { range, studentId, method } = filters;
-    const match = {
-      branchId: req.financeContext.branchFilter,
+    const match = scopedFinanceMatch(req.financeContext, {
       status: 'confirmed',
-    };
+    });
     if (studentId) match.studentId = studentId;
     if (method) match.method = method;
     if (range.filter) match.confirmedAt = range.filter;

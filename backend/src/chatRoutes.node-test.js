@@ -156,6 +156,10 @@ const actors = {
   [accessTokens.finance]: { id: 'finance-user', role: 'finance' },
 };
 actors[accessTokens.teacher].branchId = 'north';
+const schoolAObjectId = new ObjectId();
+const schoolBObjectId = new ObjectId();
+const schoolA = schoolAObjectId.toHexString();
+const schoolB = schoolBObjectId.toHexString();
 const northBranch = new ObjectId();
 const southBranch = new ObjectId();
 const north = northBranch.toHexString();
@@ -163,6 +167,7 @@ const south = southBranch.toHexString();
 for (const actor of Object.values(actors)) {
   if (actor.branchId === 'north') actor.branchId = north;
   if (actor.branchId === 'south') actor.branchId = south;
+  actor.schoolId = schoolA;
 }
 
 function makeDatabase() {
@@ -174,28 +179,35 @@ function makeDatabase() {
     revokedAt: null,
   }));
   const collections = {
+    schools: new MemoryCollection([
+      { _id: schoolAObjectId, name: 'School A', isActive: true, status: 'active' },
+      { _id: schoolBObjectId, name: 'School B', isActive: true, status: 'active' },
+    ]),
     users: new MemoryCollection([
-      { id: 'student-user', role: 'student', active: true, branchId: north },
-      { id: 'parent-user', role: 'parent', active: true, branchId: north },
-      { id: 'unlinked-parent', role: 'parent', active: true, branchId: north },
-      { id: 'teacher-a', role: 'teacher', fullName: 'Teacher A', active: true, branchId: north },
-      { id: 'teacher-b', role: 'teacher', fullName: 'Teacher B', active: true, branchId: south },
-      { id: 'finance-user', role: 'finance', active: true },
+      { id: 'student-user', role: 'student', active: true, schoolId: schoolA, branchId: north },
+      { id: 'parent-user', role: 'parent', active: true, schoolId: schoolA, branchId: north },
+      { id: 'unlinked-parent', role: 'parent', active: true, schoolId: schoolA, branchId: north },
+      { id: 'teacher-a', role: 'teacher', fullName: 'Teacher A', active: true, schoolId: schoolA, branchId: north },
+      { id: 'teacher-b', role: 'teacher', fullName: 'Teacher B', active: true, schoolId: schoolA, branchId: south },
+      { id: 'finance-user', role: 'finance', active: true, schoolId: schoolA },
     ]),
     students: new MemoryCollection([
-      { id: '002', userId: 'student-user', fullName: 'Student Two', classId: 'class-a', branchId: north },
-      { id: '003', userId: 'other-student', fullName: 'Student Three', classId: 'class-b', branchId: south },
+      { id: '002', userId: 'student-user', fullName: 'Student Two', classId: 'class-a', schoolId: schoolA, branchId: north },
+      { id: '003', userId: 'other-student', fullName: 'Student Three', classId: 'class-b', schoolId: schoolA, branchId: south },
     ]),
     parentChildLinks: new MemoryCollection([
-      { parentUserId: 'parent-user', studentId: '002', status: 'verified', revokedAt: null },
-      { parentUserId: 'unlinked-parent', studentId: '002', status: 'requested', verified: false, revokedAt: null },
-      { parentUserId: 'unlinked-parent', studentId: '003', status: 'verified', revokedAt: new Date() },
+      { parentUserId: 'parent-user', studentId: '002', schoolId: schoolA, status: 'verified', revokedAt: null },
+      { parentUserId: 'unlinked-parent', studentId: '002', schoolId: schoolA, status: 'requested', verified: false, revokedAt: null },
+      { parentUserId: 'unlinked-parent', studentId: '003', schoolId: schoolA, status: 'verified', revokedAt: new Date() },
     ]),
     classTeacherAssignments: new MemoryCollection([
-      { classId: 'class-a', branchId: north, teacherUserId: 'teacher-a', active: true, status: 'assigned' },
-      { classId: 'class-b', branchId: south, teacherUserId: 'teacher-b', active: true, status: 'assigned' },
+      { classId: 'class-a', schoolId: schoolA, branchId: north, teacherUserId: 'teacher-a', active: true, status: 'assigned' },
+      { classId: 'class-b', schoolId: schoolA, branchId: south, teacherUserId: 'teacher-b', active: true, status: 'assigned' },
     ]),
-    branches: new MemoryCollection([{ _id: northBranch }, { _id: southBranch }]),
+    branches: new MemoryCollection([
+      { _id: northBranch, schoolId: schoolAObjectId, isActive: true },
+      { _id: southBranch, schoolId: schoolAObjectId, isActive: true },
+    ]),
     chatConversations: new MemoryCollection(),
     chatMessages: new MemoryCollection(),
     chatAttachments: new MemoryCollection(),
@@ -630,3 +642,30 @@ test('integrated chat uses current partner assignments and ObjectId branch/secti
     else process.env.INTEGRATED_STAFF_ENABLED = previous;
   }
 });
+
+test('chat denies cross-school student/teacher records and fails closed when schoolId is missing', async t => {
+  const db = makeDatabase();
+  const server = createTestServer(db);
+  const port = await listen(server);
+  t.after(() => close(server));
+  const base = `http://127.0.0.1:${port}/api/chat`;
+
+  // Move student 002 to School B -> School A parent/student cannot access
+  db.collections.students.rows[0].schoolId = schoolB;
+  const crossSchoolStudent = await jsonRequest(base, accessTokens.parent, '/teachers?studentId=002');
+  assert.equal(crossSchoolStudent.status, 404);
+  db.collections.students.rows[0].schoolId = schoolA;
+
+  // Move teacher-a to School B -> Teacher A is excluded from School A student's assigned teachers
+  db.collections.users.rows.find(row => row.id === 'teacher-a').schoolId = schoolB;
+  const crossSchoolTeacher = await jsonRequest(base, accessTokens.parent, '/teachers?studentId=002');
+  assert.equal(crossSchoolTeacher.status, 200);
+  assert.deepEqual(crossSchoolTeacher.body.data.teachers, []);
+  db.collections.users.rows.find(row => row.id === 'teacher-a').schoolId = schoolA;
+
+  // Missing schoolId on parent user fails closed with 503
+  delete db.collections.users.rows.find(row => row.id === 'parent-user').schoolId;
+  const missingSchoolRes = await jsonRequest(base, accessTokens.parent, '/teachers?studentId=002');
+  assert.equal(missingSchoolRes.status, 503);
+});
+

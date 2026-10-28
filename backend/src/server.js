@@ -13,7 +13,15 @@ let staffApplication;
 function createApplication({staff = () => staffApplication} = {}) {
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      if (buf && buf.length) {
+        req.rawBody = Buffer.from(buf);
+      }
+    },
+  }),
+);
 
 app.get('/health', async (_req, res) => {
   try {
@@ -43,7 +51,13 @@ app.get('/', (_req, res) =>
 app.use((req, res, next) => {
   if (process.env.INTEGRATED_STAFF_ENABLED !== 'true') return next();
   if (req.path === '/api/live-lessons' || req.path.startsWith('/api/live-lessons/')) {
-    return res.status(503).json({ success: false, error: 'Integrated live lessons require the shared session-fencing contract.' });
+    const { isZegoLiveLessonEnabled } = require('./zegoConfig');
+    if (!isZegoLiveLessonEnabled(process.env)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Live lessons are disabled pending ZEGO provider configuration and verification.',
+      });
+    }
   }
   if (req.path === '/api/sessions' || req.path.startsWith('/api/sessions/')) {
     return res.status(503).json({success: false, error: 'Administrator session management requires the shared-session tenant and revocation contract.'});

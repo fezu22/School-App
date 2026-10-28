@@ -100,15 +100,38 @@ async function processClaimedPayment({ db, payment, workerId, config, now = () =
   }
 }
 
-async function reconcileBatch({ db = getDatabase(), config = paymentFlow.gatewayConfiguration(), workerId = crypto.randomUUID(), limit = MAX_PER_TICK, now = () => new Date(), fetchStatus, settle, backoff = BACKOFF_MS, maxAttempts = MAX_ATTEMPTS } = {}) {
-  if (!config.enabled) return { disabled: true, processed: 0 };
+async function resolvePaymentConfig(db, payment, fallbackConfig) {
+  if (payment?.provider === 'hosted_card' || payment?.method === 'card') {
+    let school = null;
+    if (payment.schoolId && db?.collection) {
+      const { referenceQuery } = require('./identityReferenceAdapter');
+      const query = referenceQuery(payment.schoolId);
+      if (query) {
+        school = await db.collection('schools').findOne(query);
+      }
+    }
+    const cardConfig = paymentFlow.resolveProviderForPaymentRecord(payment, school, process.env);
+    if (cardConfig?.enabled) return cardConfig;
+    if (fallbackConfig?.provider === 'hosted_card' && fallbackConfig?.enabled) return fallbackConfig;
+    return cardConfig;
+  }
+  return fallbackConfig || paymentFlow.gatewayConfiguration();
+}
+
+async function reconcileBatch({ db = getDatabase(), config, workerId = crypto.randomUUID(), limit = MAX_PER_TICK, now = () => new Date(), fetchStatus, settle, backoff = BACKOFF_MS, maxAttempts = MAX_ATTEMPTS } = {}) {
+  const defaultConfig = config || paymentFlow.gatewayConfiguration();
+  const cardEnvConfig = paymentFlow.cardProviderConfiguration(null, process.env);
+  if (!defaultConfig.enabled && !cardEnvConfig.enabled && process.env.ONLINE_PAYMENTS_VERIFIED !== 'true') {
+    return { disabled: true, processed: 0 };
+  }
   await paymentFlow.ensurePaymentIndexes(db);
   const counts = { disabled: false, processed: 0, confirmed: 0, failed: 0, retryScheduled: 0, exhausted: 0, leaseLost: 0 };
   for (let i = 0; i < limit; i += 1) {
     const leaseId = `${workerId}:${crypto.randomUUID()}`;
     const payment = await claimNextReconciliation(db, leaseId, now(), LEASE_MS, maxAttempts);
     if (!payment) break;
-    const outcome = await processClaimedPayment({ db, payment, workerId: leaseId, config, now, fetchStatus, settle, backoff, maxAttempts });
+    const effectiveConfig = config || (await resolvePaymentConfig(db, payment, defaultConfig));
+    const outcome = await processClaimedPayment({ db, payment, workerId: leaseId, config: effectiveConfig, now, fetchStatus, settle, backoff, maxAttempts });
     counts.processed += 1;
     if (outcome === 'confirmed') counts.confirmed += 1;
     else if (outcome === 'failed') counts.failed += 1;
@@ -121,7 +144,10 @@ async function reconcileBatch({ db = getDatabase(), config = paymentFlow.gateway
 
 function startParentPaymentReconciler({ intervalMs = POLL_INTERVAL_MS, limit = MAX_PER_TICK } = {}) {
   const config = paymentFlow.gatewayConfiguration();
-  if (!config.enabled) return { enabled: false, stop() {} };
+  const cardConfig = paymentFlow.cardProviderConfiguration(null, process.env);
+  if (!config.enabled && !cardConfig.enabled && process.env.ONLINE_PAYMENTS_VERIFIED !== 'true') {
+    return { enabled: false, stop() {} };
+  }
   let stopped = false;
   let running = false;
   const workerId = crypto.randomUUID();
@@ -129,7 +155,7 @@ function startParentPaymentReconciler({ intervalMs = POLL_INTERVAL_MS, limit = M
     if (stopped || running) return;
     running = true;
     try {
-      await reconcileBatch({ config, workerId, limit });
+      await reconcileBatch({ workerId, limit });
     } catch (error) {
       console.error(`Parent payment reconciliation tick failed (${error.name}).`);
     } finally {

@@ -239,11 +239,18 @@ function createChatRouter({
       if (!teacher) return res.status(403).json({ success: false, error: 'That teacher is not currently assigned to this student.' });
 
       const studentApiId = String(apiId(student));
-      let conversation = await db.collection('chatConversations').findOne({ studentId: studentApiId, teacherUserId: teacher.id });
+      const schoolScopeId = student.tenantScope?.schoolIdHex || (student.schoolId ? String(student.schoolId) : null);
+      const conversationLookup = {
+        ...(student.tenantScope?.schoolFilter || (schoolScopeId ? { schoolId: schoolScopeId } : {})),
+        studentId: studentApiId,
+        teacherUserId: teacher.id,
+      };
+      let conversation = await db.collection('chatConversations').findOne(conversationLookup);
       if (!conversation) {
         const now = new Date();
         const candidate = {
           id: crypto.randomUUID(),
+          ...(schoolScopeId ? { schoolId: schoolScopeId } : {}),
           studentId: studentApiId,
           teacherUserId: teacher.id,
           classId: String(student.classId),
@@ -257,7 +264,7 @@ function createChatRouter({
           conversation = candidate;
         } catch (error) {
           if (!isDuplicateKey(error)) throw error;
-          conversation = await db.collection('chatConversations').findOne({ studentId: studentApiId, teacherUserId: teacher.id });
+          conversation = await db.collection('chatConversations').findOne(conversationLookup);
         }
       }
       return res.status(201).json({ success: true, data: serializeConversation(conversation, student, teacher, 0) });
@@ -325,8 +332,12 @@ function createChatRouter({
       if (validation.error) return res.status(400).json({ success: false, error: validation.error });
       const now = new Date();
       attachmentId = crypto.randomUUID();
+      const schoolScopeId = conversation.schoolId
+        ? String(conversation.schoolId)
+        : access.student?.tenantScope?.schoolIdHex || (access.student?.schoolId ? String(access.student.schoolId) : null);
       const attachment = {
         id: attachmentId,
+        ...(schoolScopeId ? { schoolId: schoolScopeId } : {}),
         conversationId: conversation.id,
         studentId: conversation.studentId,
         teacherUserId: conversation.teacherUserId,
@@ -342,6 +353,7 @@ function createChatRouter({
 
       const message = {
         id: crypto.randomUUID(),
+        ...(schoolScopeId ? { schoolId: schoolScopeId } : {}),
         conversationId: conversation.id,
         studentId: conversation.studentId,
         teacherUserId: conversation.teacherUserId,
@@ -431,8 +443,12 @@ function createChatRouter({
         if (previous.body !== body || previous.attachments?.length) return res.status(409).json({success: false, error: 'That message identifier belongs to a different payload.'});
         return res.json({ success: true, data: { message: serializeMessage(previous, req.user.id), duplicate: true } });
       }
+      const schoolScopeId = conversation.schoolId
+        ? String(conversation.schoolId)
+        : access.student?.tenantScope?.schoolIdHex || (access.student?.schoolId ? String(access.student.schoolId) : null);
       const message = {
         id: crypto.randomUUID(),
+        ...(schoolScopeId ? { schoolId: schoolScopeId } : {}),
         conversationId: conversation.id,
         studentId: conversation.studentId,
         teacherUserId: conversation.teacherUserId,

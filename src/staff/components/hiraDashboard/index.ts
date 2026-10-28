@@ -1,4 +1,4 @@
-﻿export { Card } from './Card';
+export { Card } from './Card';
 export { SectionCard } from './SectionCard';
 export { StatCard, StatGrid } from './StatCard';
 export { HeroBanner } from './HeroBanner';

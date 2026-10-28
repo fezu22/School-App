@@ -1,4 +1,4 @@
-﻿import { Router, type Response } from 'express';
+import { Router, type Response } from 'express';
 import {
   authenticateToken,
   type AuthenticatedRequest,

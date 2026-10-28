@@ -3,7 +3,7 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 
 import connectDatabase from '../src/staff/src/config/database';
-import User, {USER_ROLES} from '../src/staff/src/models/User';
+import User, {USER_ROLES} from '../src/staff/src/models/user';
 
 const runTest = async (): Promise<void> => {
   const testEmail = `user-model-test-${Date.now()}@example.com`;

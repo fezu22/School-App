@@ -103,7 +103,7 @@ const SuperAdminDashboardScreen = () => {
   const [activeTab, setActiveTab] = useState<
     'home' | 'operations' | 'administration'
   >('home');
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const branchesSectionYRef = useRef(0);
 
   const scrollToBranches = () => {

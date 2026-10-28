@@ -12,16 +12,33 @@ import {objectIdField, RequestContractError} from '../utils/request-validation';
 export const currentAcademicActor = async (identity: JwtPayload | undefined, session?: ClientSession) => {
   if (!identity) throw new RequestContractError(401, 'Authentication required');
   const id = objectIdField(identity.userId, 'authenticated user ID');
-  const actor = await User.findById(id).session(session ?? null).read('primary').select('_id role branchId isActive').lean();
+  const actor = await User.findById(id).session(session ?? null).read('primary').select('_id role branchId schoolId isActive').lean();
   if (!actor || !actor.isActive || actor.role !== identity.role) {
     throw new RequestContractError(401, 'User account is unavailable or authorization has changed');
   }
   return actor;
 };
 
-export const requireActiveAcademicBranch = async (branchId: string | undefined) => {
-  if (!branchId || !await Branch.exists({_id: branchId, isActive: true}).read('primary')) {
+export const requireActiveAcademicBranch = async (
+  branchId: string | undefined,
+  expectedSchoolId?: string,
+) => {
+  if (!branchId) {
     throw new RequestContractError(403, 'Active branch scope is required');
+  }
+  const branch = await Branch.findOne({_id: branchId, isActive: true})
+    .read('primary')
+    .select('_id schoolId isActive')
+    .lean();
+  if (!branch) {
+    throw new RequestContractError(403, 'Active branch scope is required');
+  }
+  if (
+    expectedSchoolId &&
+    branch.schoolId &&
+    String(branch.schoolId) !== String(expectedSchoolId)
+  ) {
+    throw new RequestContractError(403, 'Branch does not belong to the actor school scope');
   }
   return branchId;
 };
@@ -44,7 +61,10 @@ export const getTeacherScope = async (identity: JwtPayload | undefined) => {
   if (actor.role !== 'teacher') {
     throw new RequestContractError(403, 'Teacher scope is required');
   }
-  const branchId = await requireActiveAcademicBranch(actor.branchId?.toString());
+  const branchId = await requireActiveAcademicBranch(
+    actor.branchId?.toString(),
+    actor.schoolId?.toString(),
+  );
   const now = new Date();
   const assignments = await TeacherAssignment.find({
     teacherId: actor._id, branchId, isActive: true, validFrom: {$lte: now},

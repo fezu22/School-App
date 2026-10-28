@@ -17,6 +17,7 @@ export default function RoleDashboard({
   }[role];
   return Component ? (
     <Component
+      role={role}
       previewOnly={previewOnly}
       searchQuery={searchQuery}
       page={page}

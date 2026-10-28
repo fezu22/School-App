@@ -1,4 +1,4 @@
-﻿import { AttendanceSession } from '../models/periodAttendance';
+import { AttendanceSession } from '../models/periodAttendance';
 import {
   TimetablePeriod,
   TimetableVersion,

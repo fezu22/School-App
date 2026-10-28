@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Academic Mortarboard Cap & Shield Silhouette inside 66dp safe zone -->
+    <path
+        android:fillColor="#FAF8F5"
+        android:pathData="M54,28 L82,41 L54,54 L26,41 Z" />
+    <path
+        android:fillColor="#CCFBF1"
+        android:pathData="M36,48.5 L36,64 C36,71.5 44,77 54,77 C64,77 72,71.5 72,64 L72,48.5 L54,57 Z" />
+    <path
+        android:fillColor="#FCD34D"
+        android:pathData="M78,43 L81,43 L81,62 C81,63.7 79.7,65 78,65 C76.3,65 75,63.7 75,62 L75,45 Z" />
+</vector>

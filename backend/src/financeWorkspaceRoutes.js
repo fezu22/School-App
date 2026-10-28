@@ -42,9 +42,11 @@ function auditRecord(
   entityId,
   details,
   createdAt,
+  schoolId = null,
 ) {
   return {
     id: crypto.randomUUID(),
+    ...(schoolId ? { schoolId } : {}),
     branchId,
     actorUserId,
     action,
@@ -89,11 +91,13 @@ function createFinanceWorkspaceRouter() {
           Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
         );
       const branchId = req.financeContext.branchFilter;
+      const schoolFilter = req.financeContext.schoolFilter || {};
       const [payments, expenseRows, payouts] = await Promise.all([
         getDatabase()
           .collection('payments')
           .find(
             {
+              ...schoolFilter,
               branchId,
               status: 'confirmed',
               confirmedAt: { $gte: from, $lt: until },
@@ -106,6 +110,7 @@ function createFinanceWorkspaceRouter() {
           .collection('financeExpenses')
           .find(
             {
+              ...schoolFilter,
               branchId,
               expenseDate: {
                 $gte: from.toISOString().slice(0, 10),
@@ -119,7 +124,7 @@ function createFinanceWorkspaceRouter() {
         getDatabase()
           .collection('salaryPayouts')
           .find(
-            { branchId, paidAt: { $gte: from, $lt: until } },
+            { ...schoolFilter, branchId, paidAt: { $gte: from, $lt: until } },
             { projection: { amount: 1, paidAt: 1 } },
           )
           .limit(10000)
@@ -154,7 +159,10 @@ function createFinanceWorkspaceRouter() {
     try {
       const data = await getDatabase()
         .collection('financeExtraCharges')
-        .find({ branchId: req.financeContext.branchFilter })
+        .find({
+          ...(req.financeContext.schoolFilter || {}),
+          branchId: req.financeContext.branchFilter,
+        })
         .sort({ createdAt: -1 })
         .limit(100)
         .toArray();
@@ -190,6 +198,7 @@ function createFinanceWorkspaceRouter() {
       const now = new Date();
       const charge = {
         id: crypto.randomUUID(),
+        ...(req.financeContext.schoolId ? { schoolId: req.financeContext.schoolId } : {}),
         branchId: req.financeContext.branchId,
         title,
         category,
@@ -221,6 +230,7 @@ function createFinanceWorkspaceRouter() {
                 charge.id,
                 { title, category, perStudentAmount, grade, dueDate },
                 now,
+                req.financeContext.schoolId,
               ),
               { session },
             );
@@ -242,6 +252,7 @@ function createFinanceWorkspaceRouter() {
         const charges = db.collection('financeExtraCharges');
         const charge = await charges.findOne(
           {
+            ...(req.financeContext.schoolFilter || {}),
             id: req.params.chargeId,
             branchId: req.financeContext.branchFilter,
           },
@@ -273,6 +284,7 @@ function createFinanceWorkspaceRouter() {
           return;
         }
         const studentFilter = {
+          ...(req.financeContext.schoolFilter || {}),
           branchId: { $in: req.financeContext.branchValues },
           status: { $ne: 'inactive' },
         };
@@ -315,6 +327,7 @@ function createFinanceWorkspaceRouter() {
         const now = new Date();
         const invoices = validStudents.map(student => ({
           id: crypto.randomUUID(),
+          ...(req.financeContext.schoolId ? { schoolId: req.financeContext.schoolId } : {}),
           branchId: req.financeContext.branchId,
           studentId: String(student.id || student.studentId),
           student: student.fullName || student.name || null,
@@ -366,6 +379,7 @@ function createFinanceWorkspaceRouter() {
               grade: charge.grade,
             },
             now,
+            req.financeContext.schoolId,
           ),
           { session },
         );
@@ -393,7 +407,10 @@ function createFinanceWorkspaceRouter() {
     try {
       const data = await getDatabase()
         .collection('financeExpenses')
-        .find({ branchId: req.financeContext.branchFilter })
+        .find({
+          ...(req.financeContext.schoolFilter || {}),
+          branchId: req.financeContext.branchFilter,
+        })
         .sort({ expenseDate: -1, createdAt: -1 })
         .limit(500)
         .project({
@@ -452,6 +469,7 @@ function createFinanceWorkspaceRouter() {
         id = crypto.randomUUID();
       const expense = {
         id,
+        ...(req.financeContext.schoolId ? { schoolId: req.financeContext.schoolId } : {}),
         branchId: req.financeContext.branchId,
         title,
         category,
@@ -487,6 +505,7 @@ function createFinanceWorkspaceRouter() {
             await db.collection('financeExpenseAttachments').insertOne(
               {
                 id: crypto.randomUUID(),
+                ...(req.financeContext.schoolId ? { schoolId: req.financeContext.schoolId } : {}),
                 expenseId: id,
                 branchId: req.financeContext.branchId,
                 contentType: attachmentCheck.contentType,
@@ -515,6 +534,7 @@ function createFinanceWorkspaceRouter() {
                 hasAttachment: Boolean(req.file),
               },
               now,
+              req.financeContext.schoolId,
             ),
             { session },
           );
@@ -532,6 +552,7 @@ function createFinanceWorkspaceRouter() {
       const db = getDatabase();
       const expense = await db.collection('financeExpenses').findOne(
         {
+          ...(req.financeContext.schoolFilter || {}),
           id: req.params.expenseId,
           branchId: req.financeContext.branchFilter,
         },
@@ -545,6 +566,7 @@ function createFinanceWorkspaceRouter() {
       const attachment = await db
         .collection('financeExpenseAttachments')
         .findOne({
+          ...(req.financeContext.schoolFilter || {}),
           expenseId: expense.id,
           branchId: req.financeContext.branchId,
         });

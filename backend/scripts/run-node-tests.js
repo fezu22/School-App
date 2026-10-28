@@ -12,9 +12,14 @@ if (!testFiles.length) {
   console.error('No backend *.node-test.js files were found.');
   process.exitCode = 1;
 } else {
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.INTEGRATED_STAFF_ENABLED;
+  delete cleanEnv.ONLINE_PAYMENTS_VERIFIED;
+  delete cleanEnv.LIVE_LESSONS_VERIFIED;
   const result = spawnSync(process.execPath, ['--test', ...testFiles], {
     cwd: resolve(__dirname, '..'),
     stdio: 'inherit',
+    env: cleanEnv,
   });
   process.exitCode = result.status ?? 1;
 }

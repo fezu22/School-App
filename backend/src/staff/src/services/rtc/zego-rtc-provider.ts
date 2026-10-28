@@ -10,6 +10,18 @@ import type {
   RtcCredentialRequest,
   RtcCredential,
 } from './rtc-provider';
+import {
+  resolveZegoConfiguration,
+  resolveZegoCredentials,
+  isZegoLiveLessonEnabled,
+} from '../../../../zegoConfig';
+
+export {
+  resolveZegoConfiguration,
+  resolveZegoCredentials,
+  isZegoLiveLessonEnabled,
+};
+
 const unavailable = () =>
   new RequestContractError(
     503,
@@ -21,21 +33,13 @@ export class ZegoRtcProvider implements RtcProvider {
   private readonly secret: string;
   private readonly ttl: number;
   constructor(env: NodeJS.ProcessEnv = process.env) {
-    this.appId = Number(env.ZEGOCLOUD_APP_ID);
-    this.secret = env.ZEGOCLOUD_SERVER_SECRET ?? '';
-    this.ttl = Number(env.LIVE_LESSON_TOKEN_TTL_SECONDS ?? 300);
-    if (
-      env.LIVE_LESSON_ENABLED !== 'true' ||
-      env.ZEGOCLOUD_ROOM_PRIVILEGES_ENABLED !== 'true' ||
-      !Number.isInteger(this.appId) ||
-      this.appId <= 0 ||
-      this.appId > 0xffffffff ||
-      !/^[\x21-\x7e]{32}$/.test(this.secret) ||
-      !Number.isInteger(this.ttl) ||
-      this.ttl < 30 ||
-      this.ttl > 600
-    )
+    const config = resolveZegoConfiguration(env);
+    if (!config.enabled) {
       throw unavailable();
+    }
+    this.appId = config.appId;
+    this.secret = (config as { serverSecret: string }).serverSecret;
+    this.ttl = config.ttlSeconds;
   }
   publicConfig() {
     return { provider: this.name, appId: this.appId };

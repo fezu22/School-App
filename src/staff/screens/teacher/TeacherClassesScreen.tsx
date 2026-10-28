@@ -49,7 +49,7 @@ export default function TeacherClassesScreen({
         ListEmptyComponent={
           !loading && !error ? (
             <Text style={styles.body}>No current class assignments.</Text>
-          ) : null
+          ) : undefined
         }
         renderItem={({ item }) => (
           <Pressable

@@ -23,7 +23,7 @@ import {
   ensureAttendanceIndexes,
 } from '../src/staff/src/models/periodAttendance';
 import { createStudent } from '../src/staff/src/services/student.service';
-import type { AttendanceDetail } from '../../src/staff/src/services/teacher/attendanceService';
+import type { AttendanceDetail } from '../../src/staff/services/teacher/attendanceService';
 import { generateAccessToken } from '../src/staff/src/services/jwt.service';
 import { registerSession } from '../src/staff/src/services/session.service';
 import { ROLE_PERMISSIONS } from '../src/staff/src/constants/rolePermissions';

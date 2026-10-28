@@ -146,11 +146,45 @@ function referenceFieldFilter(field, record, aliasField = 'id') {
   return values.length ? { [field]: { $in: values } } : { [field]: null };
 }
 
-async function assertSameBranch(db, leftReference, rightReference) {
+async function assertSameBranch(db, leftReference, rightReference, expectedSchoolId = undefined) {
   const [left, right] = await Promise.all([
     resolveBranchReference(db, leftReference),
     resolveBranchReference(db, rightReference),
   ]);
+  if (
+    left.isActive === false ||
+    left.active === false ||
+    right.isActive === false ||
+    right.active === false
+  ) {
+    const error = new Error('Branch access is disabled.');
+    error.statusCode = 403;
+    error.code = 'BRANCH_ACCESS_DENIED';
+    throw error;
+  }
+  const leftSchool = left.schoolId == null || left.schoolId === '' ? null : String(left.schoolId);
+  const rightSchool = right.schoolId == null || right.schoolId === '' ? null : String(right.schoolId);
+  if (expectedSchoolId != null && expectedSchoolId !== '') {
+    const expected = String(expectedSchoolId);
+    if (!leftSchool || !rightSchool) {
+      throw new IntegrationReferenceError(
+        'The branch needs an owner-verified canonical school mapping.',
+        'INTEGRATION_SCHOOL_SCOPE_REQUIRED',
+        503,
+      );
+    }
+    if (leftSchool !== expected || rightSchool !== expected) {
+      const error = new Error('The requested record belongs to a different school.');
+      error.statusCode = 403;
+      error.code = 'SCHOOL_ACCESS_DENIED';
+      throw error;
+    }
+  } else if (leftSchool !== rightSchool) {
+    const error = new Error('The requested record belongs to a different school.');
+    error.statusCode = 403;
+    error.code = 'SCHOOL_ACCESS_DENIED';
+    throw error;
+  }
   if (String(left._id) !== String(right._id)) {
     const error = new Error('The requested record is outside the authenticated branch.');
     error.statusCode = 403;

@@ -3,6 +3,8 @@ const express = require('express');
 const { ObjectId } = require('mongodb');
 const { getDatabase } = require('./database');
 
+const { schoolFieldMatch } = require('./schoolAccess');
+
 const published = { $or: [{ published: true }, { status: 'published' }] };
 const text = (value, max = 2000) =>
   typeof value === 'string' && value.trim() && value.trim().length <= max
@@ -15,7 +17,29 @@ const idFilter = id => ({
   ],
 });
 
+function studentSchoolFilter(student) {
+  if (student?.tenantScope?.schoolFilter) return student.tenantScope.schoolFilter;
+  if (student?.schoolId) return schoolFieldMatch(student.schoolId);
+  return null;
+}
+
+function studentSchoolRecordFields(student) {
+  const schoolId = student?.tenantScope?.schoolIdHex || (student?.schoolId ? String(student.schoolId) : null);
+  return schoolId ? { schoolId } : {};
+}
+
 function audience(student) {
+  const schoolClause = studentSchoolFilter(student);
+  const sectionClause = student.section
+    ? {
+        $or: [
+          { section: student.section },
+          { section: { $exists: false } },
+          { section: null },
+          { section: '' },
+        ],
+      }
+    : null;
   return {
     branchId: student.branchId,
     $and: [
@@ -28,6 +52,8 @@ function audience(student) {
           { audience: 'all' },
         ],
       },
+      ...(sectionClause ? [sectionClause] : []),
+      ...(schoolClause ? [schoolClause] : []),
     ],
   };
 }
@@ -35,6 +61,7 @@ function audience(student) {
 function owned(student, actor, extra = {}) {
   return {
     ...extra,
+    ...(studentSchoolFilter(student) || {}),
     studentId: student.id,
     actorUserId: actor.id,
     actorRole: actor.role,
@@ -45,7 +72,7 @@ function safeQuiz(quiz) {
   return {
     ...quiz,
     questions: (quiz.questions || []).map(question => {
-      const { answer, correctAnswer, correctOptionId, explanation, ...safe } = question;
+      const { answer, correctAnswer, correctOptionId, correctOption, explanation, ...safe } = question;
       return safe;
     }),
   };
@@ -54,12 +81,47 @@ function safeQuiz(quiz) {
 function scoreQuiz(quiz, answers) {
   const questions = Array.isArray(quiz.questions) ? quiz.questions : [];
   const submitted = answers && typeof answers === 'object' ? answers : {};
+  let earnedPoints = 0;
+  let totalPoints = 0;
   const score = questions.reduce((total, question, index) => {
+    const pts = Math.max(1, Number(question.points) || 1);
+    totalPoints += pts;
     const key = String(question.id ?? index);
+    const rawSubmitted = submitted[key] !== undefined ? submitted[key] : submitted[String(index)];
+    if (rawSubmitted === undefined || rawSubmitted === null) return total;
+
+    const hasIndexExpected =
+      question.correctOption !== undefined &&
+      question.correctOption !== null &&
+      Number.isInteger(Number(question.correctOption));
+    if (hasIndexExpected) {
+      const expectedIdx = Number(question.correctOption);
+      const expectedText = Array.isArray(question.options) ? question.options[expectedIdx] : undefined;
+      const isCorrect =
+        Number(rawSubmitted) === expectedIdx ||
+        (expectedText !== undefined && String(rawSubmitted) === String(expectedText));
+      if (isCorrect) {
+        earnedPoints += pts;
+        return total + 1;
+      }
+      return total;
+    }
+
     const expected = question.correctOptionId ?? question.correctAnswer ?? question.answer;
-    return expected != null && submitted[key] === expected ? total + 1 : total;
+    if (expected != null && String(rawSubmitted) === String(expected)) {
+      earnedPoints += pts;
+      return total + 1;
+    }
+    return total;
   }, 0);
-  return { score, total: questions.length };
+  const percentage = questions.length > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+  const summary = { score, total: questions.length };
+  Object.defineProperties(summary, {
+    earnedPoints: { value: earnedPoints, enumerable: false },
+    totalPoints: { value: totalPoints, enumerable: false },
+    percentage: { value: percentage, enumerable: false },
+  });
+  return summary;
 }
 
 function createLearnerFeatureRouter({ getStudent, getActor }) {
@@ -85,7 +147,9 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
       });
       if (!event) return res.status(404).json({ success: false, error: 'Published event was not found for this student.' });
       const request = {
-        id: crypto.randomUUID(), eventId: event.id || String(event._id),
+        id: crypto.randomUUID(),
+        ...studentSchoolRecordFields(student),
+        eventId: event.id || String(event._id),
         studentId: student.id, branchId: student.branchId,
         requestedByUserId: actor.id, requestedByRole: actor.role,
         status: 'pending', createdAt: new Date(),
@@ -109,13 +173,16 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
       if (!teacherId || !requestedDate || !reason || !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate))
         return res.status(400).json({ success: false, error: 'teacherId, valid date, and reason are required.' });
       const assignment = await getDatabase().collection('teacherAssignments').findOne({
+        ...(studentSchoolFilter(student) || {}),
         teacherUserId: teacherId, branchId: student.branchId,
         ...(student.classId ? { classId: student.classId } : {}),
         status: { $ne: 'revoked' },
       });
       if (!assignment) return res.status(403).json({ success: false, error: 'Teacher is not assigned to this student.' });
       const request = {
-        id: crypto.randomUUID(), studentId: student.id, branchId: student.branchId,
+        id: crypto.randomUUID(),
+        ...studentSchoolRecordFields(student),
+        studentId: student.id, branchId: student.branchId,
         teacherUserId: teacherId, requestedDate, reason,
         requestedByUserId: actor.id, requestedByRole: actor.role,
         status: 'pending', createdAt: new Date(),
@@ -136,7 +203,7 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
         .sort({ publishedAt: -1 }).limit(500).toArray();
       const ids = resources.map(item => item.id || String(item._id));
       const progress = ids.length ? await getDatabase().collection('learningProgress')
-        .find({ studentId: student.id, resourceId: { $in: ids } }).toArray() : [];
+        .find({ ...(studentSchoolFilter(student) || {}), studentId: student.id, resourceId: { $in: ids } }).toArray() : [];
       return res.json({ success: true, data: resources.map(item => ({
         ...item, progress: progress.find(value => value.resourceId === (item.id || String(item._id))) || null,
       })) });
@@ -155,8 +222,16 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
         return res.status(400).json({ success: false, error: 'percent must be between 0 and 100.' });
       const resourceId = resource.id || String(resource._id);
       await getDatabase().collection('learningProgress').updateOne(
-        { studentId: student.id, resourceId },
-        { $set: { percent, updatedAt: new Date(), completedAt: percent === 100 ? new Date() : null } },
+        { ...(studentSchoolFilter(student) || {}), studentId: student.id, resourceId },
+        {
+          $set: {
+            ...studentSchoolRecordFields(student),
+            ...(student.branchId ? { branchId: student.branchId } : {}),
+            percent,
+            updatedAt: new Date(),
+            completedAt: percent === 100 ? new Date() : null,
+          },
+        },
         { upsert: true },
       );
       return res.json({ success: true, data: { resourceId, percent } });
@@ -180,7 +255,20 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
         const title = text(req.body?.title || req.body?.topic, 200);
         const content = text(req.body?.content || req.body?.note || req.body?.answer || req.body?.duration, 10000);
         if (!subject || !title || !content) return res.status(400).json({ success: false, error: 'Subject, title/topic, and content are required.' });
-        const item = { id: crypto.randomUUID(), ...owned(student, actor), subject, title, content, ...(text(req.body?.studyDate, 30) ? { studyDate: text(req.body.studyDate, 30) } : {}), createdAt: new Date(), updatedAt: new Date() };
+        const item = {
+          id: crypto.randomUUID(),
+          ...studentSchoolRecordFields(student),
+          ...(student.branchId ? { branchId: student.branchId } : {}),
+          studentId: student.id,
+          actorUserId: actor.id,
+          actorRole: actor.role,
+          subject,
+          title,
+          content,
+          ...(text(req.body?.studyDate, 30) ? { studyDate: text(req.body.studyDate, 30) } : {}),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
         await getDatabase().collection(collection).insertOne(item);
         return res.status(201).json({ success: true, data: item });
       } catch (error) { return next(error); }
@@ -191,7 +279,30 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
     try {
       const { student } = context(req);
       const data = await getDatabase().collection('quizzes').find(audience(student)).sort({ publishedAt: -1 }).toArray();
-      return res.json({ success: true, data: data.map(safeQuiz) });
+      const quizIds = data.map(q => q.id || String(q._id));
+      const attempts = quizIds.length
+        ? await getDatabase()
+            .collection('quizAttempts')
+            .find({
+              ...(studentSchoolFilter(student) || {}),
+              studentId: student.id,
+              quizId: { $in: quizIds },
+            })
+            .sort({ submittedAt: -1 })
+            .toArray()
+        : [];
+      return res.json({
+        success: true,
+        data: data.map(quiz => {
+          const qId = quiz.id || String(quiz._id);
+          const quizAttempts = attempts.filter(a => a.quizId === qId);
+          return {
+            ...safeQuiz(quiz),
+            attempts: quizAttempts,
+            latestAttempt: quizAttempts[0] || null,
+          };
+        }),
+      });
     } catch (error) { return next(error); }
   });
   router.post('/quizzes/:quizId/attempts', async (req, res, next) => {
@@ -201,9 +312,20 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
       const quiz = await getDatabase().collection('quizzes').findOne({ $and: [audience(student), idFilter(req.params.quizId)] });
       if (!quiz) return res.status(404).json({ success: false, error: 'Published quiz was not found.' });
       const result = scoreQuiz(quiz, req.body?.answers);
-      const attempt = { id: crypto.randomUUID(), quizId: quiz.id || String(quiz._id), studentId: student.id, branchId: student.branchId, answers: req.body.answers, ...result, status: 'scored', submittedAt: new Date() };
+      const attempt = {
+        id: crypto.randomUUID(),
+        ...studentSchoolRecordFields(student),
+        quizId: quiz.id || String(quiz._id),
+        ...(quiz.lessonId ? { lessonId: quiz.lessonId } : {}),
+        studentId: student.id,
+        branchId: student.branchId,
+        answers: req.body.answers,
+        ...result,
+        status: 'scored',
+        submittedAt: new Date(),
+      };
       await getDatabase().collection('quizAttempts').insertOne(attempt);
-      return res.status(201).json({ success: true, data: { id: attempt.id, ...result, status: attempt.status } });
+      return res.status(201).json({ success: true, data: { id: attempt.id, quizId: attempt.quizId, ...(quiz.lessonId ? { lessonId: quiz.lessonId } : {}), ...result, status: attempt.status } });
     } catch (error) { return next(error); }
   });
 
@@ -218,9 +340,18 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
       const document = await getDatabase().collection('schoolDocuments').findOne({ $and: [audience(student), idFilter(req.params.documentId)], version });
       if (!document) return res.status(409).json({ success: false, error: 'The requested published document version is unavailable.' });
       const documentId = document.id || String(document._id);
-      const consent = { documentId, version, studentId: student.id, parentUserId: actor.id, branchId: student.branchId, decision, decidedAt: new Date() };
+      const consent = {
+        ...studentSchoolRecordFields(student),
+        documentId,
+        version,
+        studentId: student.id,
+        parentUserId: actor.id,
+        branchId: student.branchId,
+        decision,
+        decidedAt: new Date(),
+      };
       await getDatabase().collection('documentConsents').updateOne(
-        { documentId, version, studentId: student.id, parentUserId: actor.id },
+        { ...(studentSchoolFilter(student) || {}), documentId, version, studentId: student.id, parentUserId: actor.id },
         { $setOnInsert: consent }, { upsert: true },
       );
       return res.status(201).json({ success: true, data: consent });
@@ -238,7 +369,20 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
       const { student, actor } = context(req);
       const category = text(req.body?.category, 100), subject = text(req.body?.subject, 200), message = text(req.body?.message, 5000);
       if (!category || !subject || !message) return res.status(400).json({ success: false, error: 'Category, subject, and message are required.' });
-      const ticket = { id: crypto.randomUUID(), ...owned(student, actor), branchId: student.branchId, category, subject, message, status: 'open', createdAt: new Date(), updatedAt: new Date() };
+      const ticket = {
+        id: crypto.randomUUID(),
+        ...studentSchoolRecordFields(student),
+        studentId: student.id,
+        actorUserId: actor.id,
+        actorRole: actor.role,
+        branchId: student.branchId,
+        category,
+        subject,
+        message,
+        status: 'open',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
       await getDatabase().collection('helpdeskTickets').insertOne(ticket);
       return res.status(201).json({ success: true, data: ticket });
     } catch (error) { return next(error); }
@@ -247,7 +391,12 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
   router.get('/transport/history', async (req, res, next) => {
     try {
       const { student } = context(req);
-      const data = await getDatabase().collection('transportEvents').find({ studentId: student.id, branchId: student.branchId, providerVerified: true }).sort({ occurredAt: -1 }).limit(500).toArray();
+      const data = await getDatabase().collection('transportEvents').find({
+        ...(studentSchoolFilter(student) || {}),
+        studentId: student.id,
+        branchId: student.branchId,
+        providerVerified: true,
+      }).sort({ occurredAt: -1 }).limit(500).toArray();
       return res.json({ success: true, data });
     } catch (error) { return next(error); }
   });
@@ -255,7 +404,13 @@ function createLearnerFeatureRouter({ getStudent, getActor }) {
     try {
       const { student } = context(req);
       const data = await getDatabase().collection('transportTracking').findOne(
-        { studentId: student.id, branchId: student.branchId, providerVerified: true, providerEventId: { $type: 'string' } },
+        {
+          ...(studentSchoolFilter(student) || {}),
+          studentId: student.id,
+          branchId: student.branchId,
+          providerVerified: true,
+          providerEventId: { $type: 'string' },
+        },
         { sort: { recordedAt: -1 } },
       );
       if (!data) return res.status(503).json({ success: false, error: 'Verified transport tracking is not available.' });

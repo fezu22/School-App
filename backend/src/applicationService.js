@@ -21,20 +21,42 @@ function validateApplication(input) {
   return { value: { title, message } };
 }
 
-async function resolveAssignedTeacher(classId) {
+const {
+  combineTenantFilter,
+  recordMatchesBranchScope,
+  recordMatchesSchoolScope,
+} = require('./schoolAccess');
+
+async function resolveAssignedTeacher(classId, tenantScope = null, branchId = null) {
   const db = getDatabase();
+  const baseFilter = { classId, active: true, status: 'assigned' };
+  const assignmentFilter = tenantScope
+    ? combineTenantFilter(tenantScope, baseFilter)
+    : {
+        ...baseFilter,
+        ...(branchId ? { branchId } : {}),
+      };
   const assignments = await db
     .collection('classTeacherAssignments')
-    .find({ classId, active: true, status: 'assigned' })
+    .find(assignmentFilter)
     .limit(2)
     .toArray();
   if (assignments.length !== 1 || !assignments[0].teacherUserId) return null;
-  const teacher = await db.collection('users').findOne({
+  if (tenantScope && !recordMatchesSchoolScope(assignments[0], tenantScope)) return null;
+  if (tenantScope && !recordMatchesBranchScope(assignments[0], tenantScope)) return null;
+  const teacherFilter = {
     id: assignments[0].teacherUserId,
     role: 'teacher',
     active: { $ne: false },
-  });
-  return teacher?.id || null;
+  };
+  const teacher = await db.collection('users').findOne(
+    tenantScope ? combineTenantFilter(tenantScope, teacherFilter) : teacherFilter,
+  );
+  if (!teacher) return null;
+  if (tenantScope && (!recordMatchesSchoolScope(teacher, tenantScope) || !recordMatchesBranchScope(teacher, tenantScope))) {
+    return null;
+  }
+  return teacher.id || null;
 }
 
 async function createClassTeacherApplication({
@@ -49,7 +71,14 @@ async function createClassTeacherApplication({
     return { error: 'The student has no assigned class.', statusCode: 409 };
   }
 
-  const assignedTeacherUserId = await resolveAssignedTeacher(student.classId);
+  const tenantScope = student.tenantScope || null;
+  const schoolId = tenantScope?.schoolIdHex || (student.schoolId ? String(student.schoolId) : null);
+  const branchId = tenantScope?.branchId || (student.branchId ? String(student.branchId) : null);
+  const assignedTeacherUserId = await resolveAssignedTeacher(
+    student.classId,
+    tenantScope,
+    branchId,
+  );
   if (!assignedTeacherUserId) {
     return {
       error:
@@ -61,6 +90,8 @@ async function createClassTeacherApplication({
   const now = new Date();
   const application = {
     id: crypto.randomUUID(),
+    ...(schoolId ? { schoolId } : {}),
+    ...(branchId ? { branchId } : {}),
     title: validation.value.title,
     message: validation.value.message,
     status: 'submitted',

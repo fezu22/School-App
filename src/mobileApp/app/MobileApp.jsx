@@ -36,6 +36,8 @@ import ReferenceNotifications from '../shared/notifications/ReferenceNotificatio
 import RoleNavigationHub from '../navigation/RoleNavigationHub';
 import FeaturePage from '../features/FeaturePage';
 import TeacherApplicationsPage from '../TeacherApplicationsPage';
+import UltraAdminScreen from '../UltraAdminScreen';
+import RecordedLessonsPage from '../RecordedLessonsPage';
 import StudentFeesPage from '../roles/student/StudentFeesPage';
 import { features, staffFeatures } from '../features/featureScreens';
 import {
@@ -63,6 +65,9 @@ const roleNames = {
   superadmin: 'Super Admin',
   'super admin': 'Super Admin',
   super_admin: 'Super Admin',
+  ultraadmin: 'Ultra Admin',
+  'ultra admin': 'Ultra Admin',
+  ultra_admin: 'Ultra Admin',
 };
 const ownedRoles = ['Parent', 'Student', 'Finance'];
 function getGreeting(hour = new Date().getHours()) {
@@ -128,6 +133,8 @@ export default function MobileApp({
   const greetingOpacity = useRef(new Animated.Value(1)).current;
   const greetingOffset = useRef(new Animated.Value(0)).current;
   const [sessionExpired, setSessionExpired] = useState(false);
+  const useNativeDriver =
+    typeof process === 'undefined' || process.env?.NODE_ENV !== 'test';
   useEffect(() => {
     if (previewOnly || !user) return undefined;
     const unsubscribe = subscribeSessionExpiry(() => {
@@ -141,6 +148,7 @@ export default function MobileApp({
     };
     check();
     const interval = setInterval(checkSessionExpiry, 30000);
+    interval.unref?.();
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') check();
     });
@@ -153,7 +161,7 @@ export default function MobileApp({
   useEffect(() => {
     let alive = true;
     AccessibilityInfo.isReduceMotionEnabled().then(value => {
-      if (alive) setReducedMotion(value);
+      if (alive) setReducedMotion(Boolean(value));
     });
     const subscription = AccessibilityInfo.addEventListener(
       'reduceMotionChanged',
@@ -168,6 +176,7 @@ export default function MobileApp({
     const refreshGreeting = () => setGreeting(getGreeting());
     refreshGreeting();
     const interval = setInterval(refreshGreeting, 60 * 1000);
+    interval.unref?.();
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') refreshGreeting();
     });
@@ -179,7 +188,7 @@ export default function MobileApp({
   useEffect(() => {
     greetingOpacity.stopAnimation();
     greetingOffset.stopAnimation();
-    if (reducedMotion) {
+    if (reducedMotion || !useNativeDriver) {
       greetingOpacity.setValue(1);
       greetingOffset.setValue(0);
       return undefined;
@@ -190,45 +199,59 @@ export default function MobileApp({
       Animated.timing(greetingOpacity, {
         toValue: 1,
         duration: 360,
-        useNativeDriver: true,
+        useNativeDriver,
       }),
       Animated.timing(greetingOffset, {
         toValue: 0,
         duration: 360,
-        useNativeDriver: true,
+        useNativeDriver,
       }),
     ]).start();
     return undefined;
-  }, [greeting, greetingOffset, greetingOpacity, reducedMotion]);
+  }, [greeting, greetingOffset, greetingOpacity, reducedMotion, useNativeDriver]);
   useEffect(() => {
+    if (reducedMotion || !useNativeDriver) {
+      entrance.setValue(1);
+      return;
+    }
     entrance.setValue(0);
     Animated.timing(entrance, {
       toValue: 1,
-      duration: reducedMotion ? 0 : 300,
-      useNativeDriver: true,
+      duration: 300,
+      useNativeDriver,
     }).start();
-  }, [page, role, entrance, reducedMotion]);
+  }, [page, role, entrance, reducedMotion, useNativeDriver]);
   useEffect(() => {
     if (!drawer) return;
+    if (reducedMotion || !useNativeDriver) {
+      slide.setValue(0);
+      return;
+    }
     slide.setValue(-drawerWidth);
     Animated.timing(slide, {
       toValue: 0,
-      duration: reducedMotion ? 0 : 240,
-      useNativeDriver: true,
+      duration: 240,
+      useNativeDriver,
     }).start();
-  }, [drawer, drawerWidth, reducedMotion, slide]);
+  }, [drawer, drawerWidth, reducedMotion, slide, useNativeDriver]);
   const closeDrawer = useCallback(() => {
+    if (reducedMotion || !useNativeDriver) {
+      slide.setValue(-drawerWidth);
+      setDrawer(false);
+      setRolePicker(false);
+      return;
+    }
     Animated.timing(slide, {
       toValue: -drawerWidth,
-      duration: reducedMotion ? 0 : 180,
-      useNativeDriver: true,
+      duration: 180,
+      useNativeDriver,
     }).start(({ finished }) => {
       if (finished) {
         setDrawer(false);
         setRolePicker(false);
       }
     });
-  }, [drawerWidth, reducedMotion, slide]);
+  }, [drawerWidth, reducedMotion, slide, useNativeDriver]);
   useEffect(() => {
     if (!role) return;
     setPage(currentPage =>
@@ -503,8 +526,13 @@ export default function MobileApp({
             onChildChange={setChildId}
             onNavigate={navigate}
           />
-        ) : contentPage === 'Applications' && role === 'Teacher' ? (
+        ) : role === 'Ultra Admin' ? (
+          <UltraAdminScreen page={contentPage} previewOnly={previewOnly} />
+        ) : contentPage === 'Applications' && ['Teacher', 'Principal'].includes(role) ? (
           <TeacherApplicationsPage />
+        ) : contentPage === 'Recorded Lessons' &&
+          ['Teacher', 'Principal', 'Super Admin'].includes(role) ? (
+          <RecordedLessonsPage role={role} previewOnly={previewOnly} />
         ) : role === 'Student' && contentPage === 'Student Fees' ? (
           <StudentFeesPage
             key={`student-fees-${user?.id || 'preview'}-${previewOnly ? 'preview' : 'live'}`}

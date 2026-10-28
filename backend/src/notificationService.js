@@ -2,7 +2,7 @@ const crypto = require('node:crypto');
 const { Buffer } = require('node:buffer');
 const { getDatabase } = require('./database');
 
-const RECIPIENT_ROLES = new Set(['student', 'parent', 'finance']);
+const RECIPIENT_ROLES = new Set(['student', 'parent', 'finance', 'teacher', 'principal', 'super_admin']);
 const MAX_TITLE_LENGTH = 160;
 const MAX_BODY_LENGTH = 1200;
 
@@ -51,6 +51,8 @@ async function createRecipientNotification(input) {
 
   const notification = {
     id: crypto.randomUUID(),
+    ...(input.schoolId ? { schoolId: String(input.schoolId) } : {}),
+    ...(input.branchId ? { branchId: String(input.branchId) } : {}),
     recipientUserId,
     recipientRole,
     title,

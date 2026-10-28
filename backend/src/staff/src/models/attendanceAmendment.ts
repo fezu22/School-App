@@ -1,4 +1,4 @@
-﻿import { Schema, model } from 'mongoose';
+import { Schema, model } from 'mongoose';
 import { PERIOD_ATTENDANCE_STATUSES } from './periodAttendance';
 const ref = (name: string) => ({
   type: Schema.Types.ObjectId,

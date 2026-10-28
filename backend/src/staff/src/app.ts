@@ -90,7 +90,8 @@ app.use('/api/student/results', studentResultRouter);
 app.use('/api/principal/academic-review', principalAcademicRouter);
 app.use('/api/teacher/timetable', teacherTimetableRouter);
 app.use('/api/live-lessons', (_req, res, next) => {
-  if (process.env.INTEGRATED_STAFF_ENABLED === 'true' || process.env.LIVE_LESSONS_VERIFIED !== 'true') {
+  const { isZegoLiveLessonEnabled } = require('../../zegoConfig');
+  if (!isZegoLiveLessonEnabled(process.env)) {
     res.status(503).json({success: false, message: 'Live lessons are disabled pending integration and provider verification.'});
     return;
   }

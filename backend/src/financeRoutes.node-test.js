@@ -2,8 +2,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ObjectId } = require('mongodb');
 const databasePath = require.resolve('./database');
+const schoolObjectId = new ObjectId();
 const branchObjectId = new ObjectId();
-const financeIdentity = { _id: new ObjectId(), id: 'finance-a', role: 'finance', branchId: branchObjectId.toHexString() };
+const branchRecord = { _id: branchObjectId };
+Object.defineProperty(branchRecord, 'schoolId', { value: schoolObjectId, enumerable: false });
+let currentFinanceIdentity = {
+  _id: new ObjectId(),
+  id: 'finance-a',
+  role: 'finance',
+  schoolId: schoolObjectId.toHexString(),
+  branchId: branchObjectId.toHexString(),
+};
 require.cache[databasePath] = {
   id: databasePath,
   filename: databasePath,
@@ -13,12 +22,19 @@ require.cache[databasePath] = {
       collection: name => ({
         find: query => ({
           limit: count => ({
-            toArray: async () => (name === 'users' && query.$or.some(item => item.id === 'finance-a') ? [financeIdentity] : []).slice(0, count),
+            toArray: async () => (name === 'users' && query.$or.some(item => item.id === 'finance-a') ? [currentFinanceIdentity] : []).slice(0, count),
           }),
         }),
-        findOne: async query => name === 'branches' && String(query._id) === String(branchObjectId)
-          ? { _id: branchObjectId }
-          : null,
+        findOne: async query => {
+          if (name === 'schools') {
+            return String(query._id) === String(schoolObjectId)
+              ? { _id: schoolObjectId, isActive: true, status: 'active' }
+              : null;
+          }
+          return name === 'branches' && String(query._id) === String(branchObjectId)
+            ? branchRecord
+            : null;
+        },
       }),
     }),
   },
@@ -77,7 +93,20 @@ test('Finance context requires persisted Finance identity and a resolvable branc
       });
     }
   }
+
+  // Missing schoolId on finance user fails closed with 503
+  currentFinanceIdentity = { ...currentFinanceIdentity, schoolId: undefined };
+  const reqMissingSchool = { user: { id: 'finance-a', role: 'finance', branchId: branchObjectId.toHexString() } };
+  const resMissingSchool = responseRecorder();
+  const missingSchoolErr = await new Promise(resolve => {
+    const originalJson = resMissingSchool.json.bind(resMissingSchool);
+    resMissingSchool.json = body => { originalJson(body); resolve(null); return resMissingSchool; };
+    __test.requireFinanceContext(reqMissingSchool, resMissingSchool, err => resolve(err || null));
+  });
+  assert.equal(missingSchoolErr?.statusCode || resMissingSchool.statusCode, 503);
+  currentFinanceIdentity = { ...currentFinanceIdentity, schoolId: schoolObjectId.toHexString() };
 });
+
 
 test('Finance list filters reject invalid dates, methods, and oversized student IDs', () => {
   assert.match(__test.financeListFilters({ from: 'bad' }).error, /YYYY-MM-DD/);
