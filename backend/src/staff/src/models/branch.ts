@@ -63,6 +63,8 @@ const branchSchema = new Schema<IBranch>(
   },
 );
 
+// School-bounded active selectors use this equality/sort ownership path.
+branchSchema.index({schoolId: 1, isActive: 1, name: 1, _id: 1}, {name: 'school_active_branch_options'});
 const Branch = model<IBranch>('Branch', branchSchema);
 
 export default Branch;

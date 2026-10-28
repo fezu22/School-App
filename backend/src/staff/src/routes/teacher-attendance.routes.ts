@@ -52,7 +52,7 @@ const handle =
     }
   };
 const token = (req: AuthenticatedRequest) =>
-  req.headers.authorization!.slice(7);
+  req.authContext!;
 router.get(
   '/pending',
   handle(

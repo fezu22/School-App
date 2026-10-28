@@ -730,9 +730,9 @@ export default function MobileApp({
                     ) : null}
                   </Pressable>
                 ))}
-                {onLogout && !previewOnly ? (
+                {onLogout ? (
                   <Button style={{ marginTop: 20 }} onPress={onLogout}>
-                    Sign out
+                    {previewOnly ? 'Logout' : 'Sign out'}
                   </Button>
                 ) : null}
               </ScrollView>

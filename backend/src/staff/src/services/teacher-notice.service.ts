@@ -1,3 +1,4 @@
+import {type SessionAuthority} from './authenticated-session.service';
 import {enrollmentMembership} from './enrollment-membership.service';
 import { createHash } from 'node:crypto';
 import mongoose, { type ClientSession } from 'mongoose';
@@ -161,7 +162,7 @@ const ownerNotice = async (identity: Identity, id: unknown) => {
 };
 export const saveTeacherNotice = async (
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   body: unknown,
   id?: unknown,
 ) => {
@@ -268,7 +269,7 @@ const lockRecipients = async (
 };
 export const sendTeacherNotice = async (
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   id: unknown,
   body: unknown,
 ) => {

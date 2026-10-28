@@ -14,6 +14,7 @@ import {Types} from 'mongoose';
 import type {ClientSession} from 'mongoose';
 import {requireClassSubject} from './class-subject-context.service';
 import {withAcademicCatalogLock} from './academic-catalog-lock.service';
+import {requireAcademicBranch, schoolBranchFilter, schoolUserFilter} from './school-authority.service';
 import { withTimetablePublication } from './teacher-timetable.service';
 import {
   currentAcademicActor,
@@ -62,7 +63,8 @@ const actorFor = async (
 };
 const branchFor = async (
   actor: Awaited<ReturnType<typeof actorFor>>,
-  requested: unknown
+  requested: unknown,
+  session?: ClientSession,
 ) => {
   const branchId = objectIdField(
     requested ?? actor.branchId?.toString(),
@@ -73,7 +75,8 @@ const branchFor = async (
       403,
       'Timetable branch scope is not permitted'
     );
-  return requireActiveAcademicBranch(branchId);
+  await requireAcademicBranch(actor, branchId, session);
+  return branchId;
 };
 const mutationActor = async (
   identity: JwtPayload | undefined,
@@ -87,7 +90,7 @@ const mutationActor = async (
     { session }
   );
   const actor = await actorFor(identity, session);
-  await branchFor(actor, branchId);
+  await branchFor(actor, branchId, session);
   return actor;
 };
 
@@ -143,7 +146,7 @@ export const timetableOptions = async (
   query: Record<string, unknown>
 ) => {
   const actor = await actorFor(identity);
-  const branchQuery = Branch.find({ isActive: true });
+  const branchQuery = Branch.find({ isActive: true, active: {$ne: false}, ...schoolBranchFilter(actor) });
   if (actor.role === 'principal')
     branchQuery.where('_id').equals(actor.branchId);
   const branches = await branchQuery
@@ -203,7 +206,7 @@ export const timetableOptions = async (
     eligibleIds = assignments.map((a) => a.teacherId);
   }
   const teacherQuery = () => {
-    const queryForTeachers = User.find({ role: 'teacher', isActive: true })
+    const queryForTeachers = User.find({ role: 'teacher', isActive: true, ...schoolUserFilter(actor) })
       .where('branchId')
       .equals(branchId);
     if (eligibleIds) queryForTeachers.where('_id').in(eligibleIds);
@@ -614,6 +617,15 @@ const validateReplacement = async (
     { session }
   );
   if (!target.matchedCount) throw missing();
+  // A Branch match alone cannot authorize an imported or reassigned Teacher
+  // whose persisted school conflicts with that Branch. Fence the same canonical
+  // actor ownership used for normal Teacher responsibility checks.
+  try {
+    const teacher = await currentAcademicActor({userId: teacherId, role: 'teacher'}, session);
+    if (String(teacher.branchId) !== branchId) throw missing();
+  } catch {
+    throw missing();
+  }
 };
 
 export const createTimetableVersion = async (

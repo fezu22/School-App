@@ -1,10 +1,11 @@
+import {type SessionAuthority, revalidateAuthenticatedSession} from './authenticated-session.service';
 import type { ClientSession } from 'mongoose';
 import { ClassSubject } from '../models/classSubject';
 import { AcademicPeriod } from '../models/academicPeriod';
 import SchoolClass from '../models/schoolClass';
 import Subject from '../models/subject';
 import User from '../models/user';
-import Session from '../models/session';
+
 import TeacherAssignment from '../models/teacherAssignment';
 import { Syllabus } from '../models/syllabus';
 import { TimetablePeriod, TimetableVersion } from '../models/timetable';
@@ -192,7 +193,7 @@ async function assertNoDependencies(row: any, session: ClientSession) {
 }
 export async function writeClassSubject(
   identity: JwtPayload | undefined,
-  token: string,
+  token: SessionAuthority,
   classId: unknown,
   query: unknown,
   action: 'create' | 'deactivate' | 'reactivate',
@@ -217,18 +218,7 @@ export async function writeClassSubject(
         { $inc: { __v: 1 } },
         { session },
       );
-      const login = await Session.collection.updateMany(
-        {
-          token,
-          userId: initial.actor._id,
-          role: initial.actor.role,
-          isRevoked: false,
-        },
-        { $inc: { __v: 1 } },
-        { session },
-      );
-      if (!login.matchedCount)
-        throw new RequestContractError(401, 'Session is unavailable');
+      await revalidateAuthenticatedSession(token, {userId: String(initial.actor._id), role: initial.actor.role}, session);
       const ctx = await academicSetupScope(
         identity,
         'classSubjects',

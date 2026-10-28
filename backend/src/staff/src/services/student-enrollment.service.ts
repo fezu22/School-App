@@ -1,9 +1,9 @@
+import {type SessionAuthority, revalidateAuthenticatedSession} from './authenticated-session.service';
 import {createHash} from 'node:crypto';
 import mongoose, {type ClientSession} from 'mongoose';
 import Student from '../models/student';
 import User from '../models/user';
-import Session from '../models/session';
-import Branch from '../models/branch';
+
 import SchoolClass from '../models/schoolClass';
 import Section from '../models/section';
 import {AcademicPeriod} from '../models/academicPeriod';
@@ -14,6 +14,7 @@ import {currentAcademicActor} from './teacher-scope.service';
 import {withAcademicCatalogLock} from './academic-catalog-lock.service';
 import {objectBody, objectIdField, textField, RequestContractError} from '../utils/request-validation';
 import type {JwtPayload} from './jwt.service';
+import {requireAcademicBranch, schoolUserFilter} from './school-authority.service';
 const missing = () => new RequestContractError(404, 'Student enrollment is unavailable');
 const conflict = (message: string) => new RequestContractError(409, message);
 const grant = {enroll: PERMISSIONS.ENROLLMENT_MANAGE, transfer: PERMISSIONS.ENROLLMENT_MANAGE, promote: PERMISSIONS.ENROLLMENT_PROMOTE, withdraw: PERMISSIONS.ENROLLMENT_WITHDRAW};
@@ -30,13 +31,13 @@ export async function enrollmentScope(identity: JwtPayload | undefined, permissi
     if (actor.branchId) throw new RequestContractError(403, 'Global Super Admin authority is required');
     branchId = objectIdField(requested, 'target branch ID');
   }
-  if (!await Branch.exists({_id: branchId, isActive: true}).session(session ?? null)) throw missing();
+  await requireAcademicBranch(actor, branchId, session);
   return {actor, branchId};
 }
-async function studentContext(branchId: string, id: unknown, session?: ClientSession, writable = false) {
+async function studentContext(branchId: string, id: unknown, session?: ClientSession, writable = false, actor?: Awaited<ReturnType<typeof currentAcademicActor>>) {
   const row = await Student.findOne().where('_id').equals(objectIdField(id, 'student ID')).where('branchId').equals(branchId).session(session ?? null).lean();
   if (!row) throw missing();
-  const user = await User.findOne({role: 'student', ...(writable ? {isActive: true} : {})}).where('_id').equals(String(row.userId)).where('branchId').equals(branchId).session(session ?? null).select('fullName isActive').lean();
+  const user = await User.findOne({role: 'student', ...(writable ? {isActive: true} : {}), ...(actor ? schoolUserFilter(actor) : {})}).where('_id').equals(String(row.userId)).where('branchId').equals(branchId).session(session ?? null).select('fullName isActive').lean();
   if (!user || (writable && !row.isActive)) throw missing();
   return {row, user};
 }
@@ -60,7 +61,7 @@ export async function enrollmentDTO(row: any, session?: ClientSession) {
 export async function enrollmentDetail(identity: JwtPayload | undefined, id: unknown, query: unknown) {
   const input = objectBody(query, ['branchId', 'offset']);
   const ctx = await enrollmentScope(identity, PERMISSIONS.ENROLLMENT_VIEW, input.branchId);
-  const {row, user} = await studentContext(ctx.branchId, id);
+  const {row, user} = await studentContext(ctx.branchId, id, undefined, false, ctx.actor);
   const offset = offsetOf(input.offset);
   const current = await currentEnrollment(row._id, ctx.branchId);
   if (!current && await StudentEnrollment.exists({studentId: row._id, branchId: ctx.branchId, status: 'active'})) throw conflict('Enrollment lifecycle is inconsistent; administrator review is required');
@@ -90,7 +91,7 @@ export async function listEnrollmentStudents(identity: JwtPayload | undefined, q
   // Join identity and actual enrollment before filtering/pagination; projections
   // on Student are never current-enrollment authority for managed students.
   const pipeline: mongoose.PipelineStage[] = [{$match: {branchId: new mongoose.Types.ObjectId(ctx.branchId)}},
-    {$lookup: {from: User.collection.name, localField: 'userId', foreignField: '_id', pipeline: [{$match: {branchId: new mongoose.Types.ObjectId(ctx.branchId), role: 'student'}}, {$project: {fullName: 1}}], as: 'identity'}}, {$unwind: '$identity'},
+    {$lookup: {from: User.collection.name, localField: 'userId', foreignField: '_id', pipeline: [{$match: {branchId: new mongoose.Types.ObjectId(ctx.branchId), role: 'student', ...schoolUserFilter(ctx.actor)}}, {$project: {fullName: 1}}], as: 'identity'}}, {$unwind: '$identity'},
     {$lookup: {from: StudentEnrollment.collection.name, localField: '_id', foreignField: 'studentId', pipeline: [{$project: {status: 1, academicPeriodId: 1, classId: 1, sectionId: 1, revision: 1, effectiveFrom: 1, effectiveTo: 1, branchId: 1, reason: 1}}], as: 'enrollments'}},
     {$addFields: {current: {$arrayElemAt: [{$filter: {input: '$enrollments', as: 'e', cond: {$and: [activeEnrollmentExpression('$$e'), {$eq: ['$$e.branchId', new mongoose.Types.ObjectId(ctx.branchId)]}]}}}, 0]}, legacy: {$eq: [{$size: '$enrollments'}, 0]}}}];
   if (search) pipeline.push({$match: {$expr: {$or: [{$gte: [{$indexOfCP: [{$toLower: '$identity.fullName'}, search]}, 0]}, {$gte: [{$indexOfCP: [{$toLower: '$admissionNumber'}, search]}, 0]}]}}});
@@ -117,7 +118,7 @@ export async function enrollmentOptions(identity: JwtPayload | undefined, query:
   }
   return {period: {id: String(period._id), name: period.name, code: period.code}, classes: classes.map(r => ({id: String(r._id), name: r.name, code: r.code})), sections: sections.map(r => ({id: String(r._id), name: r.name, code: r.code})), nextOffset: offset + classes.length < count ? offset + classes.length : null};
 }
-export async function mutateEnrollment(identity: JwtPayload | undefined, token: string, studentId: unknown, enrollmentId: unknown, action: EnrollmentAction, query: unknown, body: unknown) {
+export async function mutateEnrollment(identity: JwtPayload | undefined, token: SessionAuthority, studentId: unknown, enrollmentId: unknown, action: EnrollmentAction, query: unknown, body: unknown) {
   const input = objectBody(body, ['operationId', 'reason', ...(action === 'enroll' ? ['academicPeriodId', 'classId', 'sectionId'] : action === 'withdraw' ? ['revision'] : ['revision', 'academicPeriodId', 'classId', 'sectionId'])]);
   const request = objectBody(query, ['branchId']);
   const initial = await enrollmentScope(identity, grant[action], request.branchId);
@@ -130,14 +131,13 @@ export async function mutateEnrollment(identity: JwtPayload | undefined, token: 
   try {
     return await withAcademicCatalogLock(initial.branchId, async session => {
       await User.collection.updateOne({_id: initial.actor._id}, {$inc: {__v: 1}}, {session});
-      const login = await Session.collection.updateMany({token, userId: initial.actor._id, role: initial.actor.role, isRevoked: false}, {$inc: {__v: 1}}, {session});
-      if (!login.matchedCount) throw new RequestContractError(401, 'Session is unavailable');
+      await revalidateAuthenticatedSession(token, {userId: String(initial.actor._id), role: initial.actor.role}, session);
       const ctx = await enrollmentScope(identity, grant[action], request.branchId, session);
       if (ctx.branchId !== initial.branchId) throw missing();
       await Student.collection.updateOne({_id: new mongoose.Types.ObjectId(id), branchId: new mongoose.Types.ObjectId(ctx.branchId)}, {$inc: {__v: 1}}, {session});
-      const before = await studentContext(ctx.branchId, id, session, true);
+      const before = await studentContext(ctx.branchId, id, session, true, ctx.actor);
       await User.collection.updateOne({_id: before.row.userId}, {$inc: {__v: 1}}, {session});
-      const {row: student} = await studentContext(ctx.branchId, id, session, true);
+      const {row: student} = await studentContext(ctx.branchId, id, session, true, ctx.actor);
       const prior = await EnrollmentOperation.findOne({branchId: ctx.branchId, studentId: id, actorId: ctx.actor._id, operationId: op}).session(session).lean();
       if (prior) {if (prior.fingerprint !== fingerprint) throw conflict('Operation ID was reused for a different change'); return prior.result;}
       const current = await currentEnrollment(id, ctx.branchId, session);

@@ -1,7 +1,8 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession, authenticatedTransaction} from './authenticated-session.service';
 import mongoose, { type ClientSession } from 'mongoose';
 import User from '../models/user';
 import Branch from '../models/branch';
-import Session from '../models/session';
+
 import SchoolClass from '../models/schoolClass';
 import Section from '../models/section';
 import Subject from '../models/subject';
@@ -13,7 +14,7 @@ import {
   getTeacherScope,
   type TeacherAssignmentTuple,
 } from './teacher-scope.service';
-import { verifyAccessToken, type JwtPayload } from './jwt.service';
+import { type JwtPayload } from './jwt.service';
 
 export type Identity = JwtPayload | undefined;
 export const communicationPermission = (permission: Permission) => {
@@ -63,7 +64,7 @@ export const communicationFence = async (
 // locking detect pre-lock changes; later writes to locked records serialize.
 export const withTeacherCommunication = async <T>(
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   permission: Permission,
   context: TeacherAssignmentTuple | undefined,
   write: (
@@ -76,23 +77,12 @@ export const withTeacherCommunication = async <T>(
   if (sourcePermission) communicationPermission(sourcePermission);
   const session = await mongoose.startSession();
   try {
-    return (await session.withTransaction(
+    return (await authenticatedTransaction(session,
       async () => {
-        const decoded = verifyAccessToken(token);
+        const decoded = sessionIdentity(token);
         if (decoded.userId !== identity?.userId || decoded.role !== 'teacher')
           throw new RequestContractError(401, 'Authentication changed');
-        const login = await Session.collection.updateMany(
-          {
-            token,
-            userId: new mongoose.Types.ObjectId(decoded.userId),
-            role: 'teacher',
-            isRevoked: false,
-          },
-          { $inc: { __v: 1 } },
-          { session },
-        );
-        if (!login.matchedCount)
-          throw new RequestContractError(401, 'Session is unavailable');
+        await revalidateAuthenticatedSession(token, {userId: String(new mongoose.Types.ObjectId(decoded.userId)), role: 'teacher'}, session);
         await communicationFence(
           session,
           User.collection.name,

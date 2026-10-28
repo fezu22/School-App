@@ -6,7 +6,7 @@ import {ApprovalAccessError} from '../services/approval-authority.policy';
 import {createTeacherResult,getPrincipalResult,getStudentResult,getTeacherResult,listStudentResults,listTeacherResults,
   moderateResult,mutateTeacherResult,publishResult,listPrincipalResults} from '../services/academic-result.service';
 
-const token=(request:AuthenticatedRequest)=>request.headers.authorization!.slice(7);
+const token=(request:AuthenticatedRequest)=>request.authContext!;
 const handle=(action:(request:AuthenticatedRequest)=>Promise<unknown>)=>async(request:AuthenticatedRequest,response:Response)=>{try{
   if(request.method==='GET'&&request.body!==undefined)throw new RequestContractError(400,'Unsupported request body');response.setHeader('Cache-Control','no-store');response.json({success:true,data:await action(request)});
 }catch(error){response.status(error instanceof RequestContractError||error instanceof ApprovalAccessError?error.status:500).json({success:false,message:error instanceof RequestContractError||error instanceof ApprovalAccessError?error.message:'Result operation failed. Please retry.'});}};

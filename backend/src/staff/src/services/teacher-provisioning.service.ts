@@ -1,11 +1,13 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession, authenticatedTransaction} from './authenticated-session.service';
 import mongoose from 'mongoose';
 import User from '../models/user';
 import Branch from '../models/branch';
-import Session from '../models/session';
+
 import { createUser } from './auth.service';
-import { verifyAccessToken } from './jwt.service';
 import { ROLE_PERMISSIONS } from '../constants/rolePermissions';
 import { PERMISSIONS } from '../constants/permissions';
+import {currentAcademicActor} from './teacher-scope.service';
+import {requireAcademicBranch} from './school-authority.service';
 import {
   objectBody,
   objectIdField,
@@ -25,8 +27,7 @@ const permitted = () => {
     );
 };
 
-// This deployment has one school and global Super Admin branch administration.
-// No caller-provided tenant/school/role/assignment fields are accepted.
+// School ownership is resolved from the persisted actor, never this body.
 export const teacherAccountBody = (input: unknown) => {
   const body = objectBody(input, ['fullName', 'email', 'password', 'branchId']);
   const fullName = textField(body.fullName, 'full name', 100, 2);
@@ -52,31 +53,26 @@ export const teacherAccountBody = (input: unknown) => {
 
 export const provisionTeacher = async (
   actorId: string,
-  token: string,
+  token: SessionAuthority,
   input: unknown,
 ) => {
   const body = teacherAccountBody(input);
   permitted();
-  const decoded = verifyAccessToken(token);
+  const identity = {userId: actorId, role: 'super_admin' as const};
+  const authority = await currentAcademicActor(identity);
+  if (authority.branchId) throw new RequestContractError(403, 'Super Admin authority is required');
+  await requireAcademicBranch(authority, body.branchId);
+  const decoded = sessionIdentity(token);
   if (decoded.userId !== actorId || decoded.role !== 'super_admin')
     throw new RequestContractError(403, 'Super Admin authority is required');
   const session = await mongoose.startSession();
   try {
-    return await session.withTransaction(
+    return await authenticatedTransaction(session,
       async () => {
         permitted();
-        const login = await Session.collection.updateOne(
-          {
-            token,
-            userId: new mongoose.Types.ObjectId(actorId),
-            role: 'super_admin',
-            isRevoked: false,
-          },
-          { $inc: { __v: 1 } },
-          { session },
-        );
-        if (!login.matchedCount)
-          throw new RequestContractError(401, 'Session is unavailable');
+        const current = await currentAcademicActor(identity, session);
+        await requireAcademicBranch(current, body.branchId, session);
+        await revalidateAuthenticatedSession(token, {userId: String(new mongoose.Types.ObjectId(actorId)), role: 'super_admin'}, session);
         const actor = await User.collection.updateOne(
           {
             _id: new mongoose.Types.ObjectId(actorId),
@@ -100,7 +96,7 @@ export const provisionTeacher = async (
         if (!branch.matchedCount)
           throw new RequestContractError(404, 'Active branch is unavailable');
         const user = await createUser(
-          { ...body, role: 'teacher' },
+          { ...body, role: 'teacher', ...(current.schoolId ? {schoolId: String(current.schoolId)} : {}) },
           { session },
         );
         permitted();

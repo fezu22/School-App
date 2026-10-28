@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 
 import { createPrincipal } from '../services/principal.service';
+import type {AuthenticatedRequest} from '../middleware/auth.middleware';
+import {RequestContractError} from '../utils/request-validation';
 
 export const createPrincipalController = async (
     req: Request,
@@ -15,7 +17,7 @@ export const createPrincipalController = async (
             phone,
             password,
             branchId,
-        });
+        }, (req as AuthenticatedRequest).user);
 
         res.status(201).json({
             success: true,
@@ -37,7 +39,7 @@ export const createPrincipalController = async (
                 ? error.message
                 : 'Failed to create principal';
 
-        const statusCode =
+        const statusCode = error instanceof RequestContractError ? error.status :
             message === 'User with this email already exists' ? 409 : 400;
 
         res.status(statusCode).json({

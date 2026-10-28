@@ -1,3 +1,4 @@
+import {type SessionAuthority} from './authenticated-session.service';
 import { createHash } from 'node:crypto';
 import {requireClassSubject} from './class-subject-context.service';
 import { LessonPlan } from '../models/lessonPlan';
@@ -128,7 +129,7 @@ export const listLessons = async (
 };
 export const writeLesson = async (
   identity: JwtPayload | undefined,
-  token: string,
+  token: SessionAuthority,
   action: 'create' | 'update' | 'submit' | 'revise',
   id: unknown,
   body: unknown,

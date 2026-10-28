@@ -22,7 +22,7 @@ import {
 } from '../services/teacher-work.service';
 
 const token = (req: AuthenticatedRequest) =>
-  req.headers.authorization!.slice(7);
+  req.authContext!;
 const offset = (req: AuthenticatedRequest) => {
   const value = req.query.offset;
   if (value === undefined) return 0;

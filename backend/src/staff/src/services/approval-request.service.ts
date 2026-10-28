@@ -1,3 +1,4 @@
+import {type SessionAuthority} from './authenticated-session.service';
 import {Types, UpdateQuery} from 'mongoose';
 import ApprovalRequest, {IApprovalRequest} from '../models/approvalRequest';
 import User from '../models/user';
@@ -11,7 +12,7 @@ export type ApprovalAction = 'approved' | 'rejected' | 'changes_requested' | 'de
 export interface ApprovalActionInput {
   requestId: string;
   actorId: string;
-  token?: string;
+  token?: SessionAuthority;
   branchId: string;
   action: ApprovalAction;
   reason?: string;

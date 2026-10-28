@@ -1,7 +1,8 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession} from './authenticated-session.service';
 import { Types, type ClientSession } from 'mongoose';
 import { LessonPlan } from '../models/lessonPlan';
 import { LessonDelivery } from '../models/lessonDelivery';
-import Session from '../models/session';
+
 import User from '../models/user';
 import { Syllabus } from '../models/syllabus';
 import { PERMISSIONS } from '../constants/permissions';
@@ -24,7 +25,6 @@ import { schoolDateTime, scheduleDate } from './school-date.service';
 import { lessonDTO, operationId, hash } from './lesson-plan.service';
 import { resolveCoverage } from './syllabus-coverage.service';
 import type { JwtPayload } from './jwt.service';
-import { verifyAccessToken } from './jwt.service';
 import {
   enumField,
   objectBody,
@@ -153,7 +153,7 @@ export const listOccurrenceLessons = async (
 };
 export const recordDelivery = async (
   identity: JwtPayload | undefined,
-  token: string,
+  token: SessionAuthority,
   value: unknown,
   body: unknown,
 ) => {
@@ -241,22 +241,10 @@ export const recordDelivery = async (
     correctionReason,
   });
   const write = async (tx: ClientSession) => {
-    const decoded = verifyAccessToken(token);
+    const decoded = sessionIdentity(token);
     if (decoded.userId !== identity?.userId || decoded.role !== 'teacher')
       throw new RequestContractError(401, 'Authentication changed');
-    const login = await Session.collection.updateMany(
-      {
-        token,
-        userId: new Types.ObjectId(initial.scope.actorId),
-        role: 'teacher',
-        isRevoked: false,
-      },
-      { $inc: { __v: 1 } },
-      { session: tx },
-    );
-    // Raw collection operations require a BSON ID, unlike model query casting.
-    if (!login.matchedCount)
-      throw new RequestContractError(401, 'Session is unavailable');
+    await revalidateAuthenticatedSession(token, {userId: String(new Types.ObjectId(initial.scope.actorId)), role: 'teacher'}, tx);
     await communicationFence(
       tx,
       Syllabus.collection.name,

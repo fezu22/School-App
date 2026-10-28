@@ -1,7 +1,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const {ObjectId} = require('mongodb');
-const {verifiedSchoolDatabase} = require('./schoolAccess');
+const {verifiedSchoolDatabase, resolveSchoolAuthority} = require('./schoolAccess');
 
 test('school authority requires a real mapping and excludes platform authority', async () => {
   const schoolId = new ObjectId();
@@ -34,4 +34,23 @@ test('verified branch mapping cannot cross schools or fall back to an inferred s
   await assert.rejects(verifiedSchoolDatabase(db, actor), /owner-verified/);
   branch.schoolId = schoolId;
   assert.ok(await verifiedSchoolDatabase(db, actor));
+});
+
+test('staff compatibility derives school only through a persisted, active owned Branch', async () => {
+  const schoolId = new ObjectId(), branchId = new ObjectId();
+  let branch = {_id: branchId, schoolId, isActive: true};
+  const db = {collection: name => ({findOne: async () => name === 'schools' ? {_id: schoolId, isActive: true} : branch})};
+  const actor = {role: 'teacher', branchId};
+  await assert.rejects(resolveSchoolAuthority(db, actor));
+  assert.equal(String((await resolveSchoolAuthority(db, actor, {allowBranchSchool: true})).schoolId), String(schoolId));
+  branch = {_id: branchId, schoolId, isActive: false};
+  await assert.rejects(resolveSchoolAuthority(db, actor, {allowBranchSchool: true}));
+});
+
+test('explicit invalid school authority is never replaced by Branch derivation', async () => {
+  const schoolId = new ObjectId(), branchId = new ObjectId();
+  const db = {collection: name => ({findOne: async () => name === 'schools' ? {_id: schoolId} : {_id: branchId, schoolId}})};
+  await assert.rejects(resolveSchoolAuthority(db, {role: 'teacher', branchId, schoolId: 'invalid'}, {allowBranchSchool: true}));
+  await assert.rejects(resolveSchoolAuthority(db, {role: 'super_admin', schoolId, active: false}));
+  await assert.rejects(resolveSchoolAuthority(db, {role: 'super_admin', schoolId, isActive: false}));
 });

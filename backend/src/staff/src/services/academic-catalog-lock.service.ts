@@ -1,3 +1,4 @@
+import {authenticatedTransaction} from './authenticated-session.service';
 import mongoose, {type ClientSession} from 'mongoose';
 import Branch from '../models/branch';
 import {RequestContractError} from '../utils/request-validation';
@@ -9,7 +10,7 @@ import {RequestContractError} from '../utils/request-validation';
 export async function withAcademicCatalogLock<T>(branchId: string, write: (session: ClientSession) => Promise<T>): Promise<T> {
   const session = await mongoose.startSession();
   try {
-    return await session.withTransaction(async () => {
+    return await authenticatedTransaction(session, async () => {
       const lock = await Branch.collection.updateOne({_id: new mongoose.Types.ObjectId(branchId), isActive: true}, {$inc: {__v: 1}}, {session});
       if (!lock.matchedCount) throw new RequestContractError(404, 'Academic branch is unavailable');
       return write(session);

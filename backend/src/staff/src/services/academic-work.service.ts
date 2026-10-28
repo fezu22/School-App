@@ -1,3 +1,4 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession} from './authenticated-session.service';
 import {requireClassSubject} from './class-subject-context.service';
 import {enrollmentMembership} from './enrollment-membership.service';
 import { createHash } from 'node:crypto';
@@ -10,7 +11,7 @@ import { LessonDelivery } from '../models/lessonDelivery';
 import { Syllabus } from '../models/syllabus';
 import Student from '../models/student';
 import User from '../models/user';
-import Session from '../models/session';
+
 import { PERMISSIONS } from '../constants/permissions';
 import { planAcademicContext } from './academic-plan-context.service';
 import { getTeacherPeriod, mutateOccurrence } from './teacher-timetable.service';
@@ -23,7 +24,6 @@ import {
   type Identity,
 } from './teacher-communication-access.service';
 import { schoolToday, scheduleDate } from './school-date.service';
-import { verifyAccessToken } from './jwt.service';
 import type { JwtPayload } from './jwt.service';
 import {
   enumField,
@@ -307,7 +307,7 @@ const ownerWork = async (identity: Identity, type: WorkType, id: unknown) => {
 
 const runMutation = async <T>(
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   authority: Awaited<ReturnType<typeof planAuthority>>,
   write: (session: ClientSession, branchId: string) => Promise<T>,
 ) => {
@@ -321,13 +321,9 @@ const runMutation = async <T>(
     identity, authority.period.periodId, authority.period.date,
     PERMISSIONS.TEACHER_ASSESSMENTS_MANAGE,
     async (session, period, branchId) => {
-      const decoded = verifyAccessToken(token);
+      const decoded = sessionIdentity(token);
       if (decoded.userId !== identity?.userId || decoded.role !== 'teacher') throw new RequestContractError(401, 'Authentication changed');
-      const login = await Session.collection.updateMany(
-        { token, userId: new mongoose.Types.ObjectId(decoded.userId), role: 'teacher', isRevoked: false },
-        { $inc: { __v: 1 } }, { session },
-      );
-      if (!login.matchedCount) throw new RequestContractError(401, 'Session is unavailable');
+      await revalidateAuthenticatedSession(token, {userId: String(new mongoose.Types.ObjectId(decoded.userId)), role: 'teacher'}, session);
       if (period.classId !== String(authority.plan.classId) || period.sectionId !== String(authority.plan.sectionId) ||
         period.subjectId !== String(authority.plan.subjectId)) throw missing();
       return guardedWrite(session, branchId);
@@ -365,7 +361,7 @@ export const getAcademicWorkContext = async (identity: Identity, lessonPlanId: u
 };
 
 const createOrUpdate = async (
-  identity: Identity, token: string, type: WorkType, body: unknown, id?: unknown,
+  identity: Identity, token: SessionAuthority, type: WorkType, body: unknown, id?: unknown,
 ) => {
   const create = id === undefined;
   const allowed = type === 'homework'
@@ -431,9 +427,9 @@ const createOrUpdate = async (
   }
 };
 
-export const saveHomework = (identity: Identity, token: string, body: unknown, id?: unknown) =>
+export const saveHomework = (identity: Identity, token: SessionAuthority, body: unknown, id?: unknown) =>
   createOrUpdate(identity, token, 'homework', body, id);
-export const saveQuiz = (identity: Identity, token: string, body: unknown, id?: unknown) =>
+export const saveQuiz = (identity: Identity, token: SessionAuthority, body: unknown, id?: unknown) =>
   createOrUpdate(identity, token, 'quiz', body, id);
 
 export const previewAcademicWorkAudience = async (identity: Identity, type: WorkType, id: unknown) => {
@@ -450,7 +446,7 @@ export const previewAcademicWorkAudience = async (identity: Identity, type: Work
 };
 
 export const publishAcademicWork = async (
-  identity: Identity, token: string, type: WorkType, id: unknown, body: unknown,
+  identity: Identity, token: SessionAuthority, type: WorkType, id: unknown, body: unknown,
 ) => {
   const input = objectBody(body, ['revision', 'clientOperationId']);
   const expected = revision(input.revision), op = operationId(input.clientOperationId);

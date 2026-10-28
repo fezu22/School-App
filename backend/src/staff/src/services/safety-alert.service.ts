@@ -1,3 +1,4 @@
+import {type SessionAuthority} from './authenticated-session.service';
 import { Types } from 'mongoose';
 
 import User from '../models/user';
@@ -226,7 +227,7 @@ export type SafetyAlertAction = 'assign' | 'resolve' | 'escalate';
 export interface SafetyAlertActionInput {
   alertId: string;
   actorId: string;
-  token?: string;
+  token?: SessionAuthority;
   branchId: string;
   action: SafetyAlertAction;
   assignedTo?: string;

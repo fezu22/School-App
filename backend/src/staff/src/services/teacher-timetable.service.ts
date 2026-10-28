@@ -1,3 +1,4 @@
+import {authenticatedTransaction, isAuthContext, revalidateAuthenticatedSession} from './authenticated-session.service';
 import mongoose, { Types, type ClientSession } from 'mongoose';
 import User from '../models/user';
 import Branch from '../models/branch';
@@ -322,7 +323,7 @@ export const withTimetablePublication = async <T>(
 ): Promise<T> => {
   const session = await mongoose.startSession();
   try {
-    return (await session.withTransaction(async () => {
+    return (await authenticatedTransaction(session, async () => {
       await fence(session, Branch.collection.name, branchId);
       if (periodId)
         await fence(session, TimetablePeriod.collection.name, periodId);
@@ -349,8 +350,9 @@ export const mutateOccurrence = async <T = TeacherPeriodDTO>(
   const scope = await getTeacherScope(identity);
   const session = await mongoose.startSession();
   try {
-    return (await session.withTransaction(
+    return (await authenticatedTransaction(session,
       async () => {
+        if (isAuthContext(identity)) await revalidateAuthenticatedSession(identity, identity, session);
         await fence(session, User.collection.name, identity!.userId);
         await fence(session, Branch.collection.name, scope.branchId);
         await fence(session, TimetablePeriod.collection.name, initial.periodId);

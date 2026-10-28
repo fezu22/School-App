@@ -48,6 +48,9 @@ app.use((req, res, next) => {
   if (req.path === '/api/sessions' || req.path.startsWith('/api/sessions/')) {
     return res.status(503).json({success: false, error: 'Administrator session management requires the shared-session tenant and revocation contract.'});
   }
+  if (['/api/privileged-requests', '/api/automation'].some(prefix => req.path === prefix || req.path.startsWith(`${prefix}/`))) {
+    return res.status(503).json({success: false, error: 'This administration service is not available for school accounts yet.'});
+  }
   if (!isStaffPath(req.originalUrl)) return next();
   const staffApp = staff();
   if (!staffApp) return res.status(503).json({ success: false, error: 'Staff APIs are not ready.' });

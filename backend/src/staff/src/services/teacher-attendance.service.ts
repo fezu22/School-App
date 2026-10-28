@@ -1,3 +1,4 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession} from './authenticated-session.service';
 import {authorizeHistoricalAttendanceRead} from './attendance-history.service';
 import {requireClassSubject} from './class-subject-context.service';
 import {enrollmentMembership} from './enrollment-membership.service';
@@ -9,7 +10,7 @@ import { createHash } from 'node:crypto';
 import mongoose, { type ClientSession } from 'mongoose';
 import Student from '../models/student';
 import User from '../models/user';
-import Session from '../models/session';
+
 import {
   AttendanceSession,
   AttendanceOperation,
@@ -32,7 +33,7 @@ import {
   type TeacherPeriodDTO,
 } from './teacher-timetable.service';
 import { schoolToday, schoolDateTime } from './school-date.service';
-import { verifyAccessToken, type JwtPayload } from './jwt.service';
+import { type JwtPayload } from './jwt.service';
 
 type Identity = JwtPayload | undefined;
 interface RosterRow {
@@ -135,23 +136,12 @@ const lockRoster = async (
 const lockLogin = async (
   session: ClientSession,
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
 ) => {
-  const decoded = verifyAccessToken(token);
+  const decoded = sessionIdentity(token);
   if (decoded.userId !== identity?.userId || decoded.role !== 'teacher')
     throw new RequestContractError(401, 'Authentication has changed');
-  const result = await Session.collection.updateMany(
-    {
-      token,
-      userId: new mongoose.Types.ObjectId(identity.userId),
-      role: 'teacher',
-      isRevoked: false,
-    },
-    { $inc: { __v: 1 } },
-    { session },
-  );
-  if (!result.matchedCount)
-    throw new RequestContractError(401, 'Session is unavailable');
+  await revalidateAuthenticatedSession(token, {userId: String(new mongoose.Types.ObjectId(identity.userId)), role: 'teacher'}, session);
 };
 const detail = async (
   period: TeacherPeriodDTO,
@@ -284,7 +274,7 @@ export const getTeacherAttendancePending = async (
 };
 export const openTeacherAttendance = async (
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   id: unknown,
   date: unknown,
 ) => {
@@ -364,7 +354,7 @@ export const getTeacherAttendanceSession = async (
 };
 export const writeTeacherAttendance = async (
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   requestedId: unknown,
   action: 'draft' | 'submit',
   input: unknown,

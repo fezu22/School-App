@@ -1,3 +1,4 @@
+import {type SessionAuthority, revalidateAuthenticatedSession} from './authenticated-session.service';
 import Room, {ROOM_CATEGORIES} from '../models/room';
 import mongoose, {type ClientSession} from 'mongoose';
 import {AcademicPeriod} from '../models/academicPeriod';
@@ -8,13 +9,14 @@ import Section from '../models/section';
 import Subject from '../models/subject';
 import Branch from '../models/branch';
 import User from '../models/user';
-import Session from '../models/session';
+
 import {PERMISSIONS, type Permission} from '../constants/permissions';
 import {ROLE_PERMISSIONS} from '../constants/rolePermissions';
 import {currentAcademicActor} from './teacher-scope.service';
 import {withAcademicCatalogLock} from './academic-catalog-lock.service';
 import {objectBody, objectIdField, textField, dateField, RequestContractError} from '../utils/request-validation';
 import type {JwtPayload} from './jwt.service';
+import {requireAcademicBranch, schoolBranchFilter} from './school-authority.service';
 
 export type SetupKind = 'periods' | 'classes' | 'sections' | 'subjects' | 'rooms';
 const grants: Record<SetupKind | 'classSubjects', {view: Permission; manage: Permission}> = {
@@ -52,8 +54,7 @@ export async function academicSetupScope(identity: JwtPayload | undefined, kind:
     if (actor.branchId) throw new RequestContractError(403, 'Global Super Admin authority is required');
     branchId = objectIdField(requested, 'target branch ID');
   }
-  const branch = await Branch.findOne({_id: branchId, isActive: true}).session(session ?? null).lean();
-  if (!branch) throw missing();
+  const branch = await requireAcademicBranch(actor, branchId, session);
   return {actor, branchId, branchName: branch.name};
 }
 export async function setupBranches(identity: JwtPayload | undefined) {
@@ -61,7 +62,7 @@ export async function setupBranches(identity: JwtPayload | undefined) {
   if (!['principal', 'super_admin'].includes(actor.role) || !([PERMISSIONS.ACADEMIC_PERIODS_VIEW, PERMISSIONS.ACADEMIC_ROOMS_VIEW].some(grant => ROLE_PERMISSIONS[actor.role].includes(grant)))) throw new RequestContractError(403, 'Academic setup permission is required');
   if (actor.role === 'super_admin' && actor.branchId) throw new RequestContractError(403, 'Global Super Admin authority is required');
   if (actor.role === 'principal' && !actor.branchId) throw new RequestContractError(403, 'Principal branch is required');
-  const rows = await Branch.find({isActive: true, ...(actor.role === 'principal' ? {_id: String(actor.branchId)} : {})}).select('_id name code').sort({name: 1}).lean();
+  const rows = await Branch.find({isActive: true, active: {$ne: false}, ...schoolBranchFilter(actor)}).select('_id name code').sort({name: 1}).lean();
   return {items: rows.map(row => ({id: String(row._id), name: row.name, code: row.code}))};
 }
 const periodDTO = (row: any) => ({id: String(row._id), name: row.name, code: row.code, startDate: row.startDate, endDate: row.endDate, status: row.status, revision: row.revision});
@@ -138,7 +139,7 @@ async function assertUnused(kind: SetupKind, row: any, session: ClientSession) {
     if (await mongoose.connection.collection(collection).findOne(filter, {session, projection: {_id: 1}})) throw conflict('This record is referenced by academic operations or history and cannot be deactivated');
   }
 }
-export async function writeSetup(identity: JwtPayload | undefined, token: string, kind: SetupKind, requestedBranch: unknown, action: 'create' | 'update' | 'deactivate' | 'reactivate' | 'activate' | 'close' | 'archive', id: unknown, body: unknown) {
+export async function writeSetup(identity: JwtPayload | undefined, token: SessionAuthority, kind: SetupKind, requestedBranch: unknown, action: 'create' | 'update' | 'deactivate' | 'reactivate' | 'activate' | 'close' | 'archive', id: unknown, body: unknown) {
   const fields = action === 'create' || action === 'update' ? (kind === 'rooms' ? ['name', 'code', 'category'] : kind === 'periods' ? ['name', ...(action === 'create' ? ['code'] : []), 'startDate', 'endDate'] : kind === 'classes' ? ['name', 'code', ...(action === 'create' ? ['academicPeriodId'] : [])] : kind === 'sections' ? ['name', 'code', ...(action === 'create' ? ['classId'] : [])] : ['name']) : [];
   const input = objectBody(body, [...fields, ...(action === 'create' ? [] : ['revision'])]);
   const initial = await academicSetupScope(identity, kind, true, requestedBranch);
@@ -147,8 +148,7 @@ export async function writeSetup(identity: JwtPayload | undefined, token: string
       // Lock current identity and login too: branch/role/session changes cannot
       // slip between authorization and the committed mutation.
       await User.collection.updateOne({_id: initial.actor._id}, {$inc: {__v: 1}}, {session});
-      const login = await Session.collection.updateMany({token, userId: initial.actor._id, role: initial.actor.role, isRevoked: false}, {$inc: {__v: 1}}, {session});
-      if (!login.matchedCount) throw new RequestContractError(401, 'Session is unavailable');
+      await revalidateAuthenticatedSession(token, {userId: String(initial.actor._id), role: initial.actor.role}, session);
       const ctx = await academicSetupScope(identity, kind, true, requestedBranch, session);
       if (ctx.branchId !== initial.branchId) throw missing();
       const Model: any = models[kind];

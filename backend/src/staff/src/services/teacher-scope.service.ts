@@ -7,16 +7,19 @@ import Subject from '../models/subject';
 import TeacherAssignment from '../models/teacherAssignment';
 import type {JwtPayload} from './jwt.service';
 import {objectIdField, RequestContractError} from '../utils/request-validation';
+import {resolveAcademicSchool} from './school-authority.service';
+import {isAuthContext, revalidateAuthenticatedSession} from './authenticated-session.service';
 
 // Identity must come from authenticateToken, never from request body/query.
 export const currentAcademicActor = async (identity: JwtPayload | undefined, session?: ClientSession) => {
   if (!identity) throw new RequestContractError(401, 'Authentication required');
+  if (session && isAuthContext(identity)) await revalidateAuthenticatedSession(identity, identity, session);
   const id = objectIdField(identity.userId, 'authenticated user ID');
-  const actor = await User.findById(id).session(session ?? null).read('primary').select('_id role branchId isActive').lean();
-  if (!actor || !actor.isActive || actor.role !== identity.role) {
+  const actor = await User.findById(id).session(session ?? null).read('primary').select('_id role schoolId branchId isActive active').lean();
+  if (!actor || !actor.isActive || actor.active === false || actor.role !== identity.role) {
     throw new RequestContractError(401, 'User account is unavailable or authorization has changed');
   }
-  return actor;
+  return resolveAcademicSchool(actor, session);
 };
 
 export const requireActiveAcademicBranch = async (branchId: string | undefined) => {

@@ -71,6 +71,7 @@ const SuperAdminDashboardScreen = () => {
   const [dashboard, setDashboard] = useState<SuperAdminDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [sectionErrors, setSectionErrors] = useState<Record<string, string>>({});
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [backup, setBackup] = useState<BackupStatus | null>(null);
@@ -123,6 +124,7 @@ const SuperAdminDashboardScreen = () => {
     try {
       setLoading(true);
       setError('');
+      setSectionErrors({});
 
       const [
         dashboardResponse,
@@ -132,7 +134,7 @@ const SuperAdminDashboardScreen = () => {
         privilegedRequestsResponse,
         automationsResponse,
         sessionsResponse,
-      ] = await Promise.all([
+      ] = await Promise.allSettled([
         adminService.getDashboard(accessToken),
         adminService.getSystemHealth(accessToken),
         adminService.getBackupStatus(accessToken),
@@ -142,13 +144,53 @@ const SuperAdminDashboardScreen = () => {
         adminService.getSessions(accessToken),
       ]);
 
-      setDashboard(dashboardResponse.data);
-      setHealth(healthResponse.data);
-      setBackup(backupResponse.data);
-      setUsage(usageResponse.data);
-      setPrivilegedRequests(privilegedRequestsResponse.data.requests);
-      setAutomations(automationsResponse.data.automations);
-      setSessions(sessionsResponse.data.sessions);
+      if (dashboardResponse.status === 'rejected') throw dashboardResponse.reason;
+      setDashboard(dashboardResponse.value.data);
+      setHealth(
+        healthResponse.status === 'fulfilled' ? healthResponse.value.data : null,
+      );
+      setBackup(
+        backupResponse.status === 'fulfilled' ? backupResponse.value.data : null,
+      );
+      setUsage(
+        usageResponse.status === 'fulfilled' ? usageResponse.value.data : null,
+      );
+      setPrivilegedRequests(
+        privilegedRequestsResponse.status === 'fulfilled'
+          ? privilegedRequestsResponse.value.data.requests
+          : [],
+      );
+      setAutomations(
+        automationsResponse.status === 'fulfilled'
+          ? automationsResponse.value.data.automations
+          : [],
+      );
+      setSessions(
+        sessionsResponse.status === 'fulfilled'
+          ? sessionsResponse.value.data.sessions
+          : [],
+      );
+      const failures: Record<string, string> = {};
+      const sections = {
+        'System Health': healthResponse,
+        'Backup Alerts': backupResponse,
+        'Usage Limits': usageResponse,
+        'Pending Privileged Requests': privilegedRequestsResponse,
+        'Automation Controls': automationsResponse,
+        'Session Security Controls': sessionsResponse,
+      };
+      for (const [name, response] of Object.entries(sections)) {
+        if (response.status === 'rejected') {
+          failures[name] =
+            response.reason instanceof Error
+              ? response.reason.message
+              : 'This section is unavailable.';
+        }
+      }
+      setSectionErrors(failures);
+      if (Object.keys(failures).length) {
+        setError(`Some sections could not load: ${Object.keys(failures).join(', ')}.`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
     } finally {
@@ -547,6 +589,9 @@ const SuperAdminDashboardScreen = () => {
           <>
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>System Health</Text>
+              {sectionErrors['System Health'] ? (
+                <Text style={styles.error}>{sectionErrors['System Health']}</Text>
+              ) : null}
 
               <View style={styles.healthCard}>
                 <Text style={styles.healthTitle}>API</Text>
@@ -576,6 +621,9 @@ const SuperAdminDashboardScreen = () => {
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Backup Alerts</Text>
+              {sectionErrors['Backup Alerts'] ? (
+                <Text style={styles.error}>{sectionErrors['Backup Alerts']}</Text>
+              ) : null}
 
               <View style={styles.healthCard}>
                 <Text style={styles.healthTitle}>Backup Monitoring</Text>
@@ -628,7 +676,9 @@ const SuperAdminDashboardScreen = () => {
                   </View>
                 </>
               ) : (
-                <Text style={styles.empty}>Usage data not available.</Text>
+                <Text style={styles.empty}>
+                  {sectionErrors['Usage Limits'] || 'Usage data not available.'}
+                </Text>
               )}
             </View>
           </>
@@ -682,7 +732,11 @@ const SuperAdminDashboardScreen = () => {
                   Pending Privileged Requests
                 </Text>
 
-                {privilegedRequests.length === 0 ? (
+                {sectionErrors['Pending Privileged Requests'] ? (
+                  <Text style={styles.error}>
+                    {sectionErrors['Pending Privileged Requests']}
+                  </Text>
+                ) : privilegedRequests.length === 0 ? (
                   <View style={styles.card}>
                     <Text style={styles.empty}>
                       No pending privileged requests
@@ -796,7 +850,11 @@ const SuperAdminDashboardScreen = () => {
                 connected.
               </Text>
 
-              {automations.length === 0 ? (
+              {sectionErrors['Automation Controls'] ? (
+                <Text style={styles.error}>
+                  {sectionErrors['Automation Controls']}
+                </Text>
+              ) : automations.length === 0 ? (
                 <View style={styles.card}>
                   <Text style={styles.empty}>No automations configured</Text>
                 </View>
@@ -875,7 +933,11 @@ const SuperAdminDashboardScreen = () => {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Session Security Controls</Text>
 
-              {sessions.length === 0 ? (
+              {sectionErrors['Session Security Controls'] ? (
+                <Text style={styles.error}>
+                  {sectionErrors['Session Security Controls']}
+                </Text>
+              ) : sessions.length === 0 ? (
                 <View style={styles.card}>
                   <Text style={styles.empty}>No active sessions</Text>
                 </View>

@@ -4,6 +4,7 @@ import Branch from '../models/branch';
 import type { ClientSession } from 'mongoose';
 
 interface CreateUserInput {
+  schoolId?: string;
   fullName: string;
   email: string;
   phone?: string;
@@ -55,6 +56,7 @@ export const createUser = async (
     password: hashedPassword,
     role: data.role,
     branchId: data.branchId,
+    ...(data.schoolId ? {schoolId: data.schoolId} : {}),
     ...(options.bootstrap ? { bootstrapKey: 'super-admin' } : {}),
   });
 

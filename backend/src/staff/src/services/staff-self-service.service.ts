@@ -1,3 +1,4 @@
+import {type SessionAuthority} from './authenticated-session.service';
 import { createHash } from 'node:crypto';
 import { Types, type ClientSession } from 'mongoose';
 import ApprovalRequest from '../models/approvalRequest';
@@ -152,7 +153,7 @@ export async function listStaffLeave(identity: Identity) {
 }
 export async function requestStaffLeave(
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   raw: unknown,
 ) {
   const body = objectBody(raw, [
@@ -489,7 +490,7 @@ async function noOverlap(
 }
 export async function offerStaffSlot(
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   raw: unknown,
 ) {
   const body = objectBody(raw, [
@@ -540,7 +541,7 @@ export async function offerStaffSlot(
 }
 export async function changeStaffAppointment(
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   id: unknown,
   action: 'confirm' | 'reschedule' | 'cancel' | 'complete',
   raw: unknown,

@@ -1,11 +1,13 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession, authenticatedTransaction} from './authenticated-session.service';
 import mongoose from 'mongoose';
 import { AssignedWork } from '../models/assignedWork';
 import User from '../models/user';
+import {requireAcademicBranch, schoolUserFilter} from './school-authority.service';
 import Branch from '../models/branch';
 import SchoolClass from '../models/schoolClass';
 import Section from '../models/section';
 import Subject from '../models/subject';
-import Session from '../models/session';
+
 import { PERMISSIONS } from '../constants/permissions';
 import { ROLE_PERMISSIONS } from '../constants/rolePermissions';
 import {
@@ -29,7 +31,6 @@ import {
   withTeacherCommunication,
   type Identity,
 } from './teacher-communication-access.service';
-import { verifyAccessToken } from './jwt.service';
 
 type Work = NonNullable<Awaited<ReturnType<typeof AssignedWork.findOne>>>;
 const workDTO = (work: Work, canComplete: boolean) => ({
@@ -253,7 +254,7 @@ export const getTeacherWork = async (identity: Identity, id: unknown) => {
 };
 export const completeTeacherWork = async (
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   id: unknown,
   body: unknown,
 ) => {
@@ -335,7 +336,7 @@ export const completeTeacherWork = async (
 // Teacher routes never accept ownership, branch or source mutation fields.
 export const manageAssignedWork = async (
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   body: unknown,
   cancelId?: unknown,
 ) => {
@@ -369,7 +370,7 @@ export const manageAssignedWork = async (
       ? objectIdField(input.assigneeUserId, 'assignee ID')
       : undefined;
   const assignee = assigneeId
-    ? await User.findById(assigneeId)
+    ? await User.findOne({_id: assigneeId, ...schoolUserFilter(actor)})
         .read('primary')
         .select('_id role branchId isActive')
         .lean()
@@ -397,9 +398,10 @@ export const manageAssignedWork = async (
         String(assignee.branchId) !== String(actor.branchId)))
   )
     throw communicationMissing();
-  const branchId = await requireActiveAcademicBranch(
-    String(old?.branchId ?? assignee?.branchId),
-  );
+  const requestedBranch = String(old?.branchId ?? assignee?.branchId);
+  const branchId = actor.schoolId
+    ? String((await requireAcademicBranch(actor, requestedBranch))._id)
+    : await requireActiveAcademicBranch(requestedBranch);
   const sourceType =
     cancelId === undefined
       ? enumField(input.sourceType, 'source type', [
@@ -447,24 +449,19 @@ export const manageAssignedWork = async (
     throw new RequestContractError(400, 'Standalone work has no linked source');
   const session = await mongoose.startSession();
   try {
-    return (await session.withTransaction(async () => {
-      const decoded = verifyAccessToken(token);
+    return (await authenticatedTransaction(session, async () => {
+      const decoded = sessionIdentity(token);
       if (decoded.userId !== identity?.userId || decoded.role !== actor.role)
         throw new RequestContractError(401, 'Authentication changed');
-      const login = await Session.collection.updateMany(
-        { token, userId: actor._id, role: actor.role, isRevoked: false },
-        { $inc: { __v: 1 } },
-        { session },
-      );
-      if (!login.matchedCount)
-        throw new RequestContractError(401, 'Session unavailable');
+      await revalidateAuthenticatedSession(token, {userId: String(actor._id), role: actor.role}, session);
       await communicationFence(
         session,
         User.collection.name,
         String(actor._id),
       );
       await communicationFence(session, Branch.collection.name, branchId);
-      const currentActor = await currentAcademicActor(identity);
+      const currentActor = await currentAcademicActor(identity, session);
+      await requireAcademicBranch(currentActor, branchId, session);
       if (
         currentActor.role !== actor.role ||
         !ROLE_PERMISSIONS[currentActor.role].includes(

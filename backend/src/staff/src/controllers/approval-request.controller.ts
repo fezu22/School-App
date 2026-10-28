@@ -56,7 +56,7 @@ export const processApprovalRequestController = async (req: BranchScopedRequest,
     }
     const request = await processApprovalRequest({
       requestId: String(req.params.requestId), actorId, branchId,
-      token: req.headers.authorization?.slice(7),
+      token: req.authContext!,
       action: input.action as ApprovalAction,
       reason: input.reason as string | undefined, delegatedTo, delegationExpiresAt,
     });

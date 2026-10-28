@@ -29,8 +29,8 @@ const curriculumRead = requirePermission(PERMISSIONS.ACADEMIC_CLASS_SUBJECTS_VIE
 const curriculumManage = requirePermission(PERMISSIONS.ACADEMIC_CLASS_SUBJECTS_MANAGE);
 academicSetupRouter.get('/classes/:classId/subjects', curriculumRead, handle(request => readClassSubjects(request.user, request.params.classId, request.query)));
 academicSetupRouter.get('/classes/:classId/subjects/options', curriculumManage, handle(request => readClassSubjects(request.user, request.params.classId, request.query, true)));
-academicSetupRouter.post('/classes/:classId/subjects', curriculumManage, handle(request => writeClassSubject(request.user, request.headers.authorization!.slice(7), request.params.classId, request.query, 'create', undefined, request.body), 201));
-for (const action of ['deactivate', 'reactivate'] as const) academicSetupRouter.post('/classes/:classId/subjects/:mappingId/' + action, curriculumManage, handle(request => writeClassSubject(request.user, request.headers.authorization!.slice(7), request.params.classId, request.query, action, request.params.mappingId, request.body)));
+academicSetupRouter.post('/classes/:classId/subjects', curriculumManage, handle(request => writeClassSubject(request.user, request.authContext!, request.params.classId, request.query, 'create', undefined, request.body), 201));
+for (const action of ['deactivate', 'reactivate'] as const) academicSetupRouter.post('/classes/:classId/subjects/:mappingId/' + action, curriculumManage, handle(request => writeClassSubject(request.user, request.authContext!, request.params.classId, request.query, action, request.params.mappingId, request.body)));
 for (const kind of ['periods', 'classes', 'sections', 'subjects', 'rooms'] as SetupKind[]) {
   const grants = {
     rooms: [PERMISSIONS.ACADEMIC_ROOMS_VIEW, PERMISSIONS.ACADEMIC_ROOMS_MANAGE],
@@ -44,7 +44,7 @@ for (const kind of ['periods', 'classes', 'sections', 'subjects', 'rooms'] as Se
   academicSetupRouter.get(`/${kind}/:id`, view, handle(request => readSetup(request.user, kind, request.query, request.params.id)));
   const write = (action: Parameters<typeof writeSetup>[4]) => (request: AuthenticatedRequest) => {
     const query = objectBody(request.query, ['branchId']);
-    return writeSetup(request.user, request.headers.authorization!.slice(7), kind, query.branchId, action, request.params.id, request.body);
+    return writeSetup(request.user, request.authContext!, kind, query.branchId, action, request.params.id, request.body);
   };
   academicSetupRouter.post(`/${kind}`, manage, handle(write('create'), 201, true));
   academicSetupRouter.patch(`/${kind}/:id`, manage, handle(write('update'), 200, true));

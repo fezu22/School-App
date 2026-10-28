@@ -1,11 +1,13 @@
+import {type SessionAuthority, revalidateAuthenticatedSession, authenticatedTransaction} from './authenticated-session.service';
 import mongoose, { Types, type ClientSession } from 'mongoose';
 import { Syllabus } from '../models/syllabus';
 import SchoolClass from '../models/schoolClass';
 import Subject from '../models/subject';
 import User from '../models/user';
-import Session from '../models/session';
+
 import Branch from '../models/branch';
 import {requireClassSubject} from './class-subject-context.service';
+import {requireAcademicBranch} from './school-authority.service';
 import { PERMISSIONS } from '../constants/permissions';
 import { ROLE_PERMISSIONS } from '../constants/rolePermissions';
 import {
@@ -91,8 +93,8 @@ export const syllabusDTO = (s: InstanceType<typeof Syllabus>) => ({
     })),
   })),
 });
-const adminActor = async (identity: JwtPayload | undefined) => {
-  const actor = await currentAcademicActor(identity);
+const adminActor = async (identity: JwtPayload | undefined, session?: ClientSession) => {
+  const actor = await currentAcademicActor(identity, session);
   // No existing Principal syllabus grant. Do not infer one from exam/approval authority.
   if (
     actor.role !== 'super_admin' ||
@@ -110,16 +112,17 @@ export const assertManagedSyllabusContext = async (
     syllabus?: InstanceType<typeof Syllabus>;
   },
   session?: ClientSession,
+  actor?: Awaited<ReturnType<typeof currentAcademicActor>>,
 ) => {
   const schoolClass = await SchoolClass.findById(context.classId)
     .read('primary')
     .session(session ?? null);
   if (!schoolClass?.isActive) throw academicMissing();
-  const branchId = await requireActiveAcademicBranch(
-    context.syllabus
-      ? context.syllabus.branchId?.toString()
-      : schoolClass.branchId?.toString(),
-  );
+  const requestedBranch = context.syllabus
+    ? context.syllabus.branchId?.toString() : schoolClass.branchId?.toString();
+  const branchId = actor?.schoolId
+    ? String((await requireAcademicBranch(actor, requestedBranch, session))._id)
+    : await requireActiveAcademicBranch(requestedBranch);
   if (
     String(schoolClass.branchId) !== branchId ||
     (context.syllabus &&
@@ -134,7 +137,7 @@ export const assertManagedSyllabusContext = async (
 };
 export const manageSyllabus = async (
   identity: JwtPayload | undefined,
-  token: string,
+  token: SessionAuthority,
   action: 'create' | 'update' | 'publish' | 'retire',
   requestedId: unknown,
   body: unknown,
@@ -162,28 +165,22 @@ export const manageSyllabus = async (
     ? String(initial.subjectId)
     : objectIdField(input.subjectId, 'subject ID');
   const context = { classId, subjectId, syllabus: initial ?? undefined };
-  const { branchId } = await assertManagedSyllabusContext(context);
+  const { branchId } = await assertManagedSyllabusContext(context, undefined, actor);
   const session = await mongoose.startSession();
   try {
-    return await session.withTransaction(async () => {
+    return await authenticatedTransaction(session, async () => {
       await communicationFence(
         session,
         User.collection.name,
         String(actor._id),
       );
-      const login = await Session.collection.updateMany(
-        { token, userId: actor._id, role: 'super_admin', isRevoked: false },
-        { $inc: { __v: 1 } },
-        { session },
-      );
-      if (!login.matchedCount)
-        throw new RequestContractError(401, 'Session is unavailable');
+      await revalidateAuthenticatedSession(token, {userId: String(actor._id), role: 'super_admin'}, session);
       await communicationFence(session, Branch.collection.name, branchId);
       await communicationFence(session, SchoolClass.collection.name, classId);
       await communicationFence(session, Subject.collection.name, subjectId);
-      await adminActor(identity);
+      const currentActor = await adminActor(identity, session);
       const { schoolClass: currentClass, branchId: currentBranchId } =
-        await assertManagedSyllabusContext(context, session);
+        await assertManagedSyllabusContext(context, session, currentActor);
       if (currentBranchId !== branchId) throw academicMissing();
       const curriculum = action === 'retire' ? null : await requireClassSubject(branchId, classId, subjectId, session);
       if (curriculum && currentClass.academicYear !== curriculum.period.code) throw new RequestContractError(409, 'Class Academic Period snapshot is inconsistent');
@@ -356,7 +353,7 @@ export const getManagedSyllabus = async (
   identity: JwtPayload | undefined,
   id: unknown,
 ) => {
-  await adminActor(identity);
+  const actor = await adminActor(identity);
   const row = await Syllabus.findById(objectIdField(id, 'syllabus ID')).read(
     'primary',
   );
@@ -365,6 +362,6 @@ export const getManagedSyllabus = async (
     classId: String(row.classId),
     subjectId: String(row.subjectId),
     syllabus: row,
-  });
+  }, undefined, actor);
   return syllabusDTO(row);
 };

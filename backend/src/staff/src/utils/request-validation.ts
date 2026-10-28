@@ -68,7 +68,7 @@ export const validDate = (value: unknown, name: string): Date => {
 export const writeScope = (req: BranchScopedRequest) => {
   if (!req.user) throw new RequestContractError(401, 'Authentication required');
   if (!req.branchId) throw new RequestContractError(403, 'Branch scope is required');
-  return {actorId: req.user.userId, branchId: req.branchId, token: req.headers.authorization?.slice(7)};
+  return {actorId: req.user.userId, branchId: req.branchId, token: req.authContext!};
 };
 
 export const writeFailure = (res: Response, error: unknown): void => {

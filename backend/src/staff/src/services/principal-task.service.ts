@@ -1,3 +1,4 @@
+import {type SessionAuthority} from './authenticated-session.service';
 import {Types} from 'mongoose';
 import PrincipalTask, {IPrincipalTask, PRINCIPAL_TASK_PRIORITIES, PRINCIPAL_TASK_STATUSES} from '../models/principalTask';
 import {principalWriteActor, principalWriteAssignee, PRINCIPAL_WRITE_ASSIGNEE_ROLES, withPrincipalWriteAuthority, fencePrincipalWriteUser} from './principal-write-access.service';
@@ -86,7 +87,7 @@ export const getPrincipalTaskById = async (taskId: string, branchId: string): Pr
 };
 
 export interface CreatePrincipalTaskInput {
-  branchId: string; actorId: string; token?: string; title: string; description?: string;
+  branchId: string; actorId: string; token?: SessionAuthority; title: string; description?: string;
   priority?: string; assignedTo: string; dueDate?: Date;
 }
 
@@ -106,7 +107,7 @@ export const createPrincipalTask = async (data: CreatePrincipalTaskInput): Promi
 
 export type PrincipalTaskAction = 'start' | 'complete' | 'cancel';
 export interface PrincipalTaskActionInput {
-  taskId: string; actorId: string; branchId: string; token?: string; action: PrincipalTaskAction;
+  taskId: string; actorId: string; branchId: string; token?: SessionAuthority; action: PrincipalTaskAction;
 }
 
 export const processPrincipalTaskAction = async (data: PrincipalTaskActionInput): Promise<IPrincipalTask> => {

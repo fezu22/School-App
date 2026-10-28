@@ -4,7 +4,7 @@ import {requireRole} from '../middleware/rbac.middleware';
 import {RequestContractError} from '../utils/request-validation';
 import {getTeacherNotification,getTeacherNotificationPreferences,listTeacherNotifications,listTeacherSessions,markTeacherNotificationRead,revokeOwnTeacherSession,saveTeacherNotificationPreferences} from '../services/teacher-notification.service';
 
-const token=(request:AuthenticatedRequest)=>request.headers.authorization!.slice(7);
+const token=(request:AuthenticatedRequest)=>request.authContext!;
 const handle=(action:(request:AuthenticatedRequest)=>Promise<unknown>)=>async(request:AuthenticatedRequest,response:Response)=>{try{response.setHeader('Cache-Control','no-store');response.json({success:true,data:await action(request)});}catch(error){response.status(error instanceof RequestContractError?error.status:500).json({success:false,message:error instanceof RequestContractError?error.message:'Notification operation failed. Please retry.'});}};
 
 const router=Router();

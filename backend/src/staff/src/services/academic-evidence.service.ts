@@ -1,9 +1,10 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession, authenticatedTransaction} from './authenticated-session.service';
 import {createHash} from 'node:crypto';
 import mongoose, {type ClientSession} from 'mongoose';
 import Branch from '../models/branch';
 import User from '../models/user';
 import Student from '../models/student';
-import Session from '../models/session';
+
 import SchoolClass from '../models/schoolClass';
 import Section from '../models/section';
 import Subject from '../models/subject';
@@ -21,7 +22,7 @@ import {getTeacherScope} from './teacher-scope.service';
 import {getTeacherPeriod, mutateOccurrence} from './teacher-timetable.service';
 import {withTeacherCommunication, type Identity} from './teacher-communication-access.service';
 import {schoolToday} from './school-date.service';
-import {verifyAccessToken, type JwtPayload} from './jwt.service';
+import {type JwtPayload} from './jwt.service';
 import {enumField, objectBody, objectIdField, textField, RequestContractError} from '../utils/request-validation';
 
 type WorkType = 'homework' | 'quiz';
@@ -72,17 +73,16 @@ const studentContext = async (identity: JwtPayload | undefined, type: WorkType, 
 };
 
 const studentMutation = async <T>(
-  identity: JwtPayload | undefined, token: string, type: WorkType, id: unknown,
+  identity: JwtPayload | undefined, token: SessionAuthority, type: WorkType, id: unknown,
   write: (session: ClientSession, context: Awaited<ReturnType<typeof studentContext>>) => Promise<T>,
 ) => {
   const initial = await studentContext(identity, type, id);
   const session = await mongoose.startSession();
   try {
-    return (await session.withTransaction(async () => {
-      const decoded = verifyAccessToken(token);
+    return (await authenticatedTransaction(session, async () => {
+      const decoded = sessionIdentity(token);
       if (decoded.userId !== identity?.userId || decoded.role !== 'student') throw new RequestContractError(401, 'Authentication changed');
-      const login = await Session.collection.updateMany({token, userId: initial.actor._id, role: 'student', isRevoked: false}, {$inc: {__v: 1}}, {session});
-      if (!login.matchedCount) throw new RequestContractError(401, 'Session is unavailable');
+      await revalidateAuthenticatedSession(token, {userId: String(initial.actor._id), role: 'student'}, session);
       await fence(session, User.collection.name, initial.actor._id);
       await fence(session, Branch.collection.name, initial.actor.branchId);
       await fence(session, Student.collection.name, initial.student._id);
@@ -113,7 +113,7 @@ const homeworkStudentDTO = async (row: InstanceType<typeof HomeworkSubmission>) 
   releasedReview: await releasedReview('homework_submission', row._id),
 });
 
-export const submitHomeworkEvidence = async (identity: JwtPayload | undefined, token: string, homeworkId: unknown, body: unknown) => {
+export const submitHomeworkEvidence = async (identity: JwtPayload | undefined, token: SessionAuthority, homeworkId: unknown, body: unknown) => {
   const input = objectBody(body, ['content', 'clientOperationId']);
   const content = textField(input.content, 'submission content', 12000, 1), op = operationId(input.clientOperationId);
   const payloadHash = hash({homeworkId: String(homeworkId), content});
@@ -181,7 +181,7 @@ const attemptStudentDTO = async (row: InstanceType<typeof QuizAttempt>) => ({
   releasedReview: await releasedReview('quiz_attempt', row._id),
 });
 
-export const startQuizAttempt = async (identity: JwtPayload | undefined, token: string, quizId: unknown, body: unknown) => {
+export const startQuizAttempt = async (identity: JwtPayload | undefined, token: SessionAuthority, quizId: unknown, body: unknown) => {
   const input = objectBody(body, ['clientOperationId']), op = operationId(input.clientOperationId);
   const payloadHash = hash({quizId: String(quizId), action: 'start'});
   try {
@@ -251,7 +251,7 @@ const answersFrom = (value: unknown, quiz: InstanceType<typeof Quiz>) => {
 };
 
 export const submitQuizAttempt = async (
-  identity: JwtPayload | undefined, token: string, quizId: unknown, attemptId: unknown, body: unknown,
+  identity: JwtPayload | undefined, token: SessionAuthority, quizId: unknown, attemptId: unknown, body: unknown,
 ) => {
   const input = objectBody(body, ['answers', 'revision', 'clientOperationId']);
   const expected = revision(input.revision), op = operationId(input.clientOperationId);
@@ -319,14 +319,13 @@ const teacherAuthority = async (identity: Identity, targetType: TargetType, evid
   return {scope, evidence, work, plan, period, tuple};
 };
 
-const teacherMutation = async <T>(identity: Identity, token: string, authority: Awaited<ReturnType<typeof teacherAuthority>>, write: (session: ClientSession) => Promise<T>) => {
+const teacherMutation = async <T>(identity: Identity, token: SessionAuthority, authority: Awaited<ReturnType<typeof teacherAuthority>>, write: (session: ClientSession) => Promise<T>) => {
   if (authority.period && authority.plan.occurrence) return mutateOccurrence(
     identity, authority.plan.occurrence.periodId, authority.plan.occurrence.date, PERMISSIONS.TEACHER_ASSESSMENTS_MANAGE,
     async (session) => {
-      const decoded = verifyAccessToken(token);
+      const decoded = sessionIdentity(token);
       if (decoded.userId !== identity?.userId || decoded.role !== 'teacher') throw new RequestContractError(401, 'Authentication changed');
-      const login = await Session.collection.updateMany({token, userId: new mongoose.Types.ObjectId(decoded.userId), role: 'teacher', isRevoked: false}, {$inc: {__v: 1}}, {session});
-      if (!login.matchedCount) throw new RequestContractError(401, 'Session is unavailable');
+      await revalidateAuthenticatedSession(token, {userId: String(new mongoose.Types.ObjectId(decoded.userId)), role: 'teacher'}, session);
       return write(session);
     },
   );
@@ -461,7 +460,7 @@ export const listTeacherReviewQueue = async (identity: Identity) => {
 };
 
 export const mutateTeacherReview = async (
-  identity: Identity, token: string, targetTypeValue: unknown, evidenceId: unknown, body: unknown,
+  identity: Identity, token: SessionAuthority, targetTypeValue: unknown, evidenceId: unknown, body: unknown,
 ) => {
   const targetType = enumField(targetTypeValue, 'evidence type', ['homework_submission', 'quiz_attempt'] as const);
   const input = objectBody(body, ['action', 'revision', 'clientOperationId', 'criteria', 'rubricRevision', 'scores', 'feedback', 'privateNote', 'returnReason', 'resubmitAllowed']);

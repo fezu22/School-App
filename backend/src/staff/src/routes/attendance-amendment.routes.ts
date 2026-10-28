@@ -74,7 +74,7 @@ router.post(
   handle(req =>
     requestAttendanceAmendment(
       req.user,
-      req.headers.authorization!.slice(7),
+      req.authContext!,
       'correction',
       req.params.sessionId,
       req.params.studentId,
@@ -89,7 +89,7 @@ router.post(
   handle(req =>
     requestAttendanceAmendment(
       req.user,
-      req.headers.authorization!.slice(7),
+      req.authContext!,
       'leave',
       req.params.sessionId,
       req.params.studentId,
@@ -110,7 +110,7 @@ router.post(
   handle(req =>
     decideAttendanceAmendment(
       req.user,
-      req.headers.authorization!.slice(7),
+      req.authContext!,
       req.params.approvalId,
       req.body,
     ),

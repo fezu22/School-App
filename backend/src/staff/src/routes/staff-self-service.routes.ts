@@ -32,7 +32,7 @@ router.use((req, res, next) => {
   next();
 });
 const token = (req: AuthenticatedRequest) =>
-  req.headers.authorization!.slice(7);
+  req.authContext!;
 const handle =
   (action: (req: AuthenticatedRequest) => Promise<unknown>) =>
   async (req: AuthenticatedRequest, res: Response) => {

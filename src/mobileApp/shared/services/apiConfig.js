@@ -1,4 +1,4 @@
-import { NativeModules, Platform } from 'react-native';
+import { NativeModules, Platform, TurboModuleRegistry } from 'react-native';
 
 const DEFAULT_API_PORT = 5000;
 
@@ -24,7 +24,11 @@ function configuredPort() {
 }
 
 function metroHost() {
-  const scriptUrl = NativeModules?.SourceCode?.scriptURL || '';
+  // Bridgeless builds expose SourceCode through TurboModules.
+  const sourceCode =
+    TurboModuleRegistry.get('SourceCode') || NativeModules?.SourceCode;
+  const scriptUrl =
+    sourceCode?.getConstants?.().scriptURL || sourceCode?.scriptURL || '';
   const match = String(scriptUrl).match(/^[a-z]+:\/\/\[?([^\]/:]+|[^\]]+)\]?:\d+/i);
   return match?.[1] || '';
 }
@@ -47,7 +51,10 @@ export function resolveApiRoot({
     );
   }
 
-  const host = metroHost() || (platform === 'android' ? '10.0.2.2' : '127.0.0.1');
+  // Both physical Android devices and emulators use the same development
+  // transport: adb reverse tcp:5000 tcp:5000. Metro's Wi-Fi host is independent
+  // of API connectivity. Explicit configuration above still takes precedence.
+  const host = platform === 'android' ? '127.0.0.1' : metroHost() || '127.0.0.1';
   return `http://${host}:${configuredPort()}/api`;
 }
 

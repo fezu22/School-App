@@ -1,8 +1,9 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession, authenticatedTransaction} from './authenticated-session.service';
 import { createHash } from 'node:crypto';
 import mongoose, { type ClientSession } from 'mongoose';
 import User from '../models/user';
 import Student from '../models/student';
-import Session from '../models/session';
+
 import {
   AttendanceSession,
   PeriodAttendanceRecord,
@@ -33,7 +34,7 @@ import {
   addScheduleDays,
   scheduleDate,
 } from './school-date.service';
-import { verifyAccessToken, type JwtPayload } from './jwt.service';
+import { type JwtPayload } from './jwt.service';
 import {
   objectBody,
   objectIdField,
@@ -593,7 +594,7 @@ export const getTeacherCatchUp = async (identity: Identity, id: unknown) => {
 
 export const mutateTeacherCatchUp = async (
   identity: Identity,
-  token: string,
+  token: SessionAuthority,
   id: unknown,
   body: unknown,
 ) => {
@@ -767,7 +768,7 @@ export const getStudentCatchUp = async (
 };
 export const submitStudentCatchUpEvidence = async (
   identity: JwtPayload | undefined,
-  token: string,
+  token: SessionAuthority,
   id: unknown,
   body: unknown,
 ) => {
@@ -778,18 +779,12 @@ export const submitStudentCatchUpEvidence = async (
     payloadHash = hash({ catchUpId: String(id), content });
   const session = await mongoose.startSession();
   try {
-    return (await session.withTransaction(
+    return (await authenticatedTransaction(session,
       async () => {
-        const decoded = verifyAccessToken(token);
+        const decoded = sessionIdentity(token);
         if (decoded.userId !== identity?.userId || decoded.role !== 'student')
           throw new RequestContractError(401, 'Authentication changed');
-        const login = await Session.collection.updateMany(
-          { token, userId: ctx.actor._id, role: 'student', isRevoked: false },
-          { $inc: { __v: 1 } },
-          { session },
-        );
-        if (!login.matchedCount)
-          throw new RequestContractError(401, 'Session is unavailable');
+        await revalidateAuthenticatedSession(token, {userId: String(ctx.actor._id), role: 'student'}, session);
         let row: any = await CatchUpItem.findOne({
           _id: objectIdField(id, 'catch-up ID'),
           branchId: ctx.branchId,

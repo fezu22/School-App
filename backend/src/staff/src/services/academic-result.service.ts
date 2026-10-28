@@ -1,3 +1,4 @@
+import {type SessionAuthority} from './authenticated-session.service';
 import {createHash} from 'node:crypto';
 import mongoose, {type ClientSession} from 'mongoose';
 import ApprovalRequest from '../models/approvalRequest';
@@ -69,7 +70,7 @@ export const listTeacherResults=async(identity:Identity,query:unknown)=>{const i
   const reviews:any[]=await TeacherReview.find({branchId:scope.branchId,state:{$in:['reviewed','feedback_released']}}).sort({updatedAt:-1}).limit(100).read('primary'),sources=[];for(const review of reviews){try{const auth=await sourceAuthority(identity,review.targetType,String(review.evidenceId));if(auth.tuple.assignmentId!==tuple.assignmentId)continue;const existing=rows.find(v=>String(v.sourceReviewId)===String(review._id));const student:any=await Student.findById(auth.evidence.studentId).select('admissionNumber').lean(),user:any=student?await User.findById(student.userId).select('fullName').lean():null;sources.push({targetType:auth.type,evidenceId:String(auth.evidence._id),reviewId:String(review._id),title:auth.work.title,student:{fullName:user?.fullName??'',admissionNumber:student?.admissionNumber??''},score:review.totalScore,maxScore:review.maxScore,resultId:existing?String(existing._id):null});}catch(error){if(!(error instanceof RequestContractError)&&!(error instanceof ApprovalAccessError))throw error;}}
   return{sources,items,total:items.length};};
 
-export const createTeacherResult=async(identity:Identity,token:string,body:unknown)=>{const input=objectBody(body,['targetType','evidenceId','awardedMarks','overrideReason','teacherPrivateNote','clientOperationId']),op=operationId(input.clientOperationId),initial=await sourceAuthority(identity,input.targetType,input.evidenceId),draft=validateDraft(input,initial.review),payloadHash=hash({action:'create',type:initial.type,evidenceId:String(initial.evidence._id),...draft});
+export const createTeacherResult=async(identity:Identity,token:SessionAuthority,body:unknown)=>{const input=objectBody(body,['targetType','evidenceId','awardedMarks','overrideReason','teacherPrivateNote','clientOperationId']),op=operationId(input.clientOperationId),initial=await sourceAuthority(identity,input.targetType,input.evidenceId),draft=validateDraft(input,initial.review),payloadHash=hash({action:'create',type:initial.type,evidenceId:String(initial.evidence._id),...draft});
   const prior:any=await AcademicResult.findOne({teacherId:initial.scope.actorId,'history.operationId':op}).read('primary');if(prior){if(!replay(prior,op,payloadHash))throw conflict();return teacherDTO(await attachStudentName(prior),initial.tuple);}
   try{return await withTeacherCommunication(identity,token,PERMISSIONS.TEACHER_ASSESSMENTS_MANAGE,initial.tuple,async session=>{const auth=await sourceAuthority(identity,initial.type,String(initial.evidence._id),session);for(const[collection,id]of[[sourceModel(auth.type).collection.name,String(auth.evidence._id)],[workModel(auth.type).collection.name,String(auth.work._id)],[TeacherReview.collection.name,String(auth.review._id)]])await communicationFence(session,collection,id);
     const existing:any=await AcademicResult.findOne({sourceReviewId:auth.review._id}).session(session);if(existing){if(replay(existing,op,payloadHash))return teacherDTO(await attachStudentName(existing),auth.tuple);throw conflict('A result already exists for this review');}
@@ -77,7 +78,7 @@ export const createTeacherResult=async(identity:Identity,token:string,body:unkno
 
 const teacherResultContext=async(identity:Identity,id:unknown)=>{const scope=await getTeacherScope(identity),row:any=await AcademicResult.findOne({_id:objectIdField(id,'result ID'),branchId:scope.branchId}).read('primary');if(!row)throw unavailable();const tuple=tupleFor(scope,row);if(!tuple)throw unavailable();return{scope,row,tuple};};
 export const getTeacherResult=async(identity:Identity,id:unknown)=>{const ctx=await teacherResultContext(identity,id);return teacherDTO(await attachStudentName(ctx.row),ctx.tuple);};
-export const mutateTeacherResult=async(identity:Identity,token:string,id:unknown,body:unknown)=>{const input=objectBody(body,['action','recordRevision','awardedMarks','overrideReason','teacherPrivateNote','clientOperationId']),action=enumField(input.action,'result action',['save_draft','submit','create_revision']as const),expected=expectedRevision(input.recordRevision),op=operationId(input.clientOperationId),initial=await teacherResultContext(identity,id),payloadHash=hash({...input,resultId:String(initial.row._id)});
+export const mutateTeacherResult=async(identity:Identity,token:SessionAuthority,id:unknown,body:unknown)=>{const input=objectBody(body,['action','recordRevision','awardedMarks','overrideReason','teacherPrivateNote','clientOperationId']),action=enumField(input.action,'result action',['save_draft','submit','create_revision']as const),expected=expectedRevision(input.recordRevision),op=operationId(input.clientOperationId),initial=await teacherResultContext(identity,id),payloadHash=hash({...input,resultId:String(initial.row._id)});
   return withTeacherCommunication(identity,token,PERMISSIONS.TEACHER_ASSESSMENTS_MANAGE,initial.tuple,async session=>{let row:any=await AcademicResult.findById(initial.row._id).session(session);if(!row)throw unavailable();if(replay(row,op,payloadHash))return teacherDTO(await attachStudentName(row),initial.tuple);if(row.recordRevision!==expected)throw conflict();if(['published','rejected','submitted_for_moderation','resubmitted_for_moderation','moderated_approved'].includes(row.status))throw conflict('Result is not editable');
     const source=await sourceAuthority(identity,row.assessmentSourceType,String(row.sourceEvidenceId),session),review:any=source.review;
     if(String(source.work._id)!==String(row.sourceWorkId)||source.work.publishedRevision!==row.sourcePublishedRevision||String(source.evidence._id)!==String(row.sourceEvidenceId)||evidenceRevision(source.type,source.evidence)!==row.sourceEvidenceRevision||String(review._id)!==String(row.sourceReviewId)||review.revision!==row.sourceReviewRevision||String(source.evidence.studentId)!==String(row.studentId)||String(source.evidence.recipientUserId)!==String(row.recipientUserId))throw conflict('Source evidence changed');const now=new Date();
@@ -164,7 +165,7 @@ export const listPrincipalResults = async (identity: JwtPayload | undefined, que
 
 // P-PR1 owns persisted actor/Branch/exact-session fencing. The result and
 // existing histories are provisional until those post-write fences succeed.
-const principalResultWrite = async (initial: Awaited<ReturnType<typeof principalContext>>, token: string, write: (session: ClientSession) => Promise<void>) =>
+const principalResultWrite = async (initial: Awaited<ReturnType<typeof principalContext>>, token: SessionAuthority, write: (session: ClientSession) => Promise<void>) =>
   withPrincipalWriteAuthority({actorId: String(initial.actor._id), branchId: initial.branchId, token}, PERMISSIONS.PRINCIPAL_APPROVALS_MANAGE, write, async session => {
     // Validate the transaction's actual record, including on driver retry.
     const row = await AcademicResult.findOne({_id: initial.row._id, branchId: initial.branchId, approvalRequestId: initial.approval._id}).session(session);
@@ -185,7 +186,7 @@ const writeRecords = async (initial: Awaited<ReturnType<typeof principalContext>
   if (!row || !approval) throw unavailable();
   return {row, approval};
 };
-export const moderateResult = async (identity: JwtPayload | undefined, token: string, id: unknown, body: unknown) => {
+export const moderateResult = async (identity: JwtPayload | undefined, token: SessionAuthority, id: unknown, body: unknown) => {
   const input = objectBody(body, ['action', 'recordRevision', 'reason', 'clientOperationId']);
   const action = enumField(input.action, 'moderation action', ['approve', 'return', 'reject'] as const), expected = expectedRevision(input.recordRevision);
   const note = optionalText(input.reason, 'moderation reason', 1000, action === 'approve' ? 0 : 3), op = operationId(input.clientOperationId);
@@ -206,7 +207,7 @@ export const moderateResult = async (identity: JwtPayload | undefined, token: st
   });
   return principalDTO(await principalContext(identity, id));
 };
-export const publishResult = async (identity: JwtPayload | undefined, token: string, id: unknown, body: unknown) => {
+export const publishResult = async (identity: JwtPayload | undefined, token: SessionAuthority, id: unknown, body: unknown) => {
   const input = objectBody(body, ['recordRevision', 'clientOperationId']), expected = expectedRevision(input.recordRevision), op = operationId(input.clientOperationId);
   const initial = await principalContext(identity, id, true), payloadHash = hash({...input, action: 'publish', approvalId: String(initial.approval._id)});
   await principalResultWrite(initial, token, async session => {

@@ -1,3 +1,4 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession} from './authenticated-session.service';
 import {
   authorizeHistoricalAttendanceRead,
   hasOperationalAttendanceVersion,
@@ -16,7 +17,7 @@ import {
 } from '../models/periodAttendance';
 import Student from '../models/student';
 import User from '../models/user';
-import Session from '../models/session';
+
 import {
   getTeacherScope,
   currentAcademicActor,
@@ -35,7 +36,7 @@ import { suppressCatchUpsForCorrection } from './catch-up.service';
 import { assertApprovalAuthority } from './approval-authority.policy';
 import { PERMISSIONS, type Permission } from '../constants/permissions';
 import { ROLE_PERMISSIONS } from '../constants/rolePermissions';
-import { verifyAccessToken, type JwtPayload } from './jwt.service';
+import { type JwtPayload } from './jwt.service';
 import {
   objectBody,
   objectIdField,
@@ -91,23 +92,12 @@ const lock = async (
 const lockLogin = async (
   tx: ClientSession,
   identity: JwtPayload,
-  token: string,
+  token: SessionAuthority,
 ) => {
-  const decoded = verifyAccessToken(token);
+  const decoded = sessionIdentity(token);
   if (decoded.userId !== identity.userId || decoded.role !== identity.role)
     throw new RequestContractError(401, 'Session is unavailable');
-  const r = await Session.collection.updateMany(
-    {
-      token,
-      userId: new mongoose.Types.ObjectId(identity.userId),
-      role: identity.role,
-      isRevoked: false,
-    },
-    { $inc: { __v: 1 } },
-    { session: tx },
-  );
-  if (!r.matchedCount)
-    throw new RequestContractError(401, 'Session is unavailable');
+  await revalidateAuthenticatedSession(token, {userId: String(new mongoose.Types.ObjectId(identity.userId)), role: identity.role}, tx);
 };
 const studentEvidence = async (
   branchId: string,
@@ -329,7 +319,7 @@ export const getTeacherAttendanceReview = async (
 };
 export const requestAttendanceAmendment = async (
   identity: JwtPayload | undefined,
-  token: string,
+  token: SessionAuthority,
   kind: 'correction' | 'leave',
   sessionValue: unknown,
   studentValue: unknown,
@@ -575,7 +565,7 @@ export const requestAttendanceAmendment = async (
           ],
           { session: tx },
         );
-        verifyAccessToken(token);
+        sessionIdentity(token);
         permission('teacher', PERMISSIONS.TEACHER_ATTENDANCE_MANAGE);
         return {
           requestId: String(requestId),
@@ -687,7 +677,7 @@ export const getPrincipalAttendanceReview = async (
 };
 export const decideAttendanceAmendment = async (
   identity: JwtPayload | undefined,
-  token: string,
+  token: SessionAuthority,
   approvalValue: unknown,
   body: unknown,
 ) => {
@@ -877,7 +867,7 @@ export const decideAttendanceAmendment = async (
           String(current.attendanceSessionId),
           tx,
         );
-      verifyAccessToken(token);
+      sessionIdentity(token);
       await principal(identity, ctx.approval.approvalType, true);
       return { state: action, replayed: false };
     },

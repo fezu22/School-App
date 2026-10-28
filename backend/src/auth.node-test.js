@@ -89,6 +89,24 @@ test('partner bcrypt accounts receive hashed opaque sessions and canonical Objec
   assert.equal((await authenticate(`Bearer ${result.token}`)).passed, true);
 });
 
+test('legacy bcrypt 2y accounts verify passwords before issuing sessions', async () => {
+  const {ObjectId} = require('mongodb');
+  const bcrypt = require('bcryptjs');
+  const password = 'fixture-legacy-password-123';
+  const passwordHash = (await bcrypt.hash(password, 10)).replace(/^\$2b\$/, '$2y$');
+  user = { _id: new ObjectId(), role: 'super_admin', isActive: true,
+    email: 'admin@example.invalid', password: passwordHash };
+  insertedSession = undefined;
+  assert.equal(await login(user.email, 'wrong-password'), null);
+  assert.equal(insertedSession, undefined);
+  const result = await login(user.email, password);
+  assert.equal(result.user.id, user._id.toHexString());
+  assert.equal(result.user.role, 'super_admin');
+  assert.equal(user.password, passwordHash);
+  user.isActive = false;
+  assert.equal(await login(user.email, password), null);
+});
+
 test('ambiguous email and identity matches fail closed', async () => {
   userMatches = [{ id: 'one', role: 'student' }, { id: 'two', role: 'student' }];
   assert.equal(await login('duplicate@example.invalid', 'not-a-real-password'), null);

@@ -12,7 +12,7 @@ import {
   saveQuiz,
 } from '../services/academic-work.service';
 
-const token = (request: AuthenticatedRequest) => request.headers.authorization!.slice(7);
+const token = (request: AuthenticatedRequest) => request.authContext!;
 const handle = (action: (request: AuthenticatedRequest) => Promise<unknown>) =>
   async (request: AuthenticatedRequest, response: Response) => {
     try {

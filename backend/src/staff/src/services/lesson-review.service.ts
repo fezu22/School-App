@@ -1,8 +1,9 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession, authenticatedTransaction} from './authenticated-session.service';
 import mongoose from 'mongoose';
 import ApprovalRequest from '../models/approvalRequest';
 import { LessonPlan } from '../models/lessonPlan';
 import User from '../models/user';
-import Session from '../models/session';
+
 import Branch from '../models/branch';
 import SchoolClass from '../models/schoolClass';
 import Section from '../models/section';
@@ -25,7 +26,6 @@ import { communicationFence } from './teacher-communication-access.service';
 import { assertApprovalAuthority } from './approval-authority.policy';
 import { lessonDTO, operationId, hash } from './lesson-plan.service';
 import type { JwtPayload } from './jwt.service';
-import { verifyAccessToken } from './jwt.service';
 import {
   objectBody,
   objectIdField,
@@ -162,7 +162,7 @@ export const getLessonReview = async (
 };
 export const decideLessonReview = async (
   identity: JwtPayload | undefined,
-  token: string,
+  token: SessionAuthority,
   id: unknown,
   body: unknown,
 ) => {
@@ -195,8 +195,8 @@ export const decideLessonReview = async (
   });
   const tx = await mongoose.startSession();
   try {
-    await tx.withTransaction(async () => {
-      const decoded = verifyAccessToken(token);
+    await authenticatedTransaction(tx, async () => {
+      const decoded = sessionIdentity(token);
       if (decoded.userId !== identity?.userId || decoded.role !== 'principal')
         throw new RequestContractError(401, 'Authentication changed');
       await communicationFence(
@@ -204,18 +204,7 @@ export const decideLessonReview = async (
         User.collection.name,
         String(initial.actor._id),
       );
-      const login = await Session.collection.updateMany(
-        {
-          token,
-          userId: initial.actor._id,
-          role: 'principal',
-          isRevoked: false,
-        },
-        { $inc: { __v: 1 } },
-        { session: tx },
-      );
-      if (!login.matchedCount)
-        throw new RequestContractError(401, 'Session is unavailable');
+      await revalidateAuthenticatedSession(token, {userId: String(initial.actor._id), role: 'principal'}, tx);
       for (const [collection, value] of [
         [Branch.collection.name, initial.branchId],
         [User.collection.name, String(initial.plan.teacherId)],
@@ -280,7 +269,7 @@ export const decideLessonReview = async (
       await approval.save({ session: tx });
       await row.save({ session: tx });
       await context(identity, id, true);
-      verifyAccessToken(token);
+      sessionIdentity(token);
     });
   } finally {
     await tx.endSession();

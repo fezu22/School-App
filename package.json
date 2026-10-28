@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "preandroid": "npm run android:prepare",
+    "android:prepare": "adb reverse tcp:5000 tcp:5000",
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "lint": "eslint .",
@@ -29,7 +31,7 @@
     "@babel/preset-env": "^7.25.3",
     "@babel/runtime": "^7.25.0",
     "@react-native-community/cli": "^20.2.0",
-    "@react-native-community/cli-platform-android": "20.1.0",
+    "@react-native-community/cli-platform-android": "^20.2.0",
     "@react-native-community/cli-platform-ios": "^20.2.0",
     "@react-native/babel-preset": "0.86.2",
     "@react-native/eslint-config": "0.86.2",

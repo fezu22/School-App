@@ -16,6 +16,7 @@ export const SUPER_ADMIN_BOOTSTRAP_INDEX = {
 } as const;
 
 export interface IUser extends Document {
+  schoolId?: Schema.Types.ObjectId;
   fullName: string;
   email: string;
   phone?: string;
@@ -23,6 +24,7 @@ export interface IUser extends Document {
   role: UserRole;
   branchId?: Schema.Types.ObjectId;
   isActive: boolean;
+  active?: boolean;
   bootstrapKey?: 'super-admin';
   createdAt: Date;
   updatedAt: Date;
@@ -30,6 +32,8 @@ export interface IUser extends Document {
 
 const userSchema = new Schema<IUser>(
   {
+    schoolId: {type: Schema.Types.ObjectId, immutable: true},
+    active: {type: Boolean, default: undefined},
     fullName: {
       type: String,
       required: true,

@@ -7,10 +7,11 @@ import { createPrincipalController } from '../controllers/principal.controller';
 import { requirePermission } from '../middleware/permission.middleware';
 import { PERMISSIONS } from '../constants/permissions';
 import Branch from '../models/branch';
-import User from '../models/user';
 import {provisionTeacher} from '../services/teacher-provisioning.service';
 import {RequestContractError} from '../utils/request-validation';
 import {integratedSchoolContext} from '../utils/school-context';
+import {currentAcademicActor} from '../services/teacher-scope.service';
+import {schoolBranchFilter} from '../services/school-authority.service';
 
 const router = Router();
 
@@ -32,12 +33,11 @@ router.get('/teachers/branches', authenticateToken, requireRole('super_admin'),
   requirePermission(PERMISSIONS.TEACHERS_CREATE), async (req, res): Promise<void> => {
     res.setHeader('Cache-Control', 'no-store');
     try {
-      const actor = await User.findById((req as import('../middleware/auth.middleware').AuthenticatedRequest).user?.userId)
-        .select('branchId role isActive').lean();
+      const actor = await currentAcademicActor((req as import('../middleware/auth.middleware').AuthenticatedRequest).user);
       if (!actor || actor.branchId || !actor.isActive || actor.role !== 'super_admin')
         throw new RequestContractError(403, 'Global Super Admin authority is required');
       const context = process.env.INTEGRATED_STAFF_ENABLED === 'true' ? await integratedSchoolContext(req) : undefined;
-      const branches = context ? await context.database.collection('branches').find({isActive: true}, {projection: {_id: 1, name: 1, code: 1}}).sort({name: 1}).toArray() : await Branch.find({isActive: true}).select('_id name code').sort({name: 1}).lean();
+      const branches = context ? await context.database.collection('branches').find({isActive: true, active: {$ne: false}}, {projection: {_id: 1, name: 1, code: 1}}).sort({name: 1}).toArray() : await Branch.find({isActive: true, active: {$ne: false}, ...schoolBranchFilter(actor)}).select('_id name code').sort({name: 1}).lean();
       res.json({success: true, data: branches.map((b: {_id: unknown; name: string; code: string}) => ({id: String(b._id), name: b.name, code: b.code}))});
     } catch (error) {
       res.status(error instanceof RequestContractError ? error.status : 500)
@@ -49,7 +49,7 @@ router.post('/teachers', authenticateToken, requireRole('super_admin'),
     res.setHeader('Cache-Control', 'no-store');
     try {
       const actor = (req as import('../middleware/auth.middleware').AuthenticatedRequest).user!;
-      const data = await provisionTeacher(actor.userId, req.headers.authorization!.slice(7), req.body);
+      const data = await provisionTeacher(actor.userId, (req as import('../middleware/auth.middleware').AuthenticatedRequest).authContext!, req.body);
       res.status(201).json({success: true, message: 'Teacher account created successfully.', data});
     } catch (error) {
       res.status(error instanceof RequestContractError ? error.status : 500)

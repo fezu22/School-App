@@ -3,9 +3,12 @@ import {NextFunction, Request, Response} from 'express';
 import {verifyAccessToken, JwtPayload} from '../services/jwt.service';
 import {isTokenRevoked} from '../services/session.service';
 import User from '../models/user';
+import {opaqueAuthContext, jwtAuthContext, type AuthContext} from '../services/authenticated-session.service';
+import {RequestContractError} from '../utils/request-validation';
 
 export interface AuthenticatedRequest extends Request {
   user?: JwtPayload;
+  authContext?: AuthContext;
 }
 
 export const authenticateToken = async (
@@ -23,8 +26,14 @@ export const authenticateToken = async (
         res.status(503).json({success: false, message: 'Staff account identity mapping is unresolved'});
         return;
       }
-      req.user = {userId: identity, role: record.role};
-      next();
+      try {
+        const context = await opaqueAuthContext({userId: identity, role: record.role}, (req as any).authenticatedSessionRecord);
+        req.user = context;
+        req.authContext = context;
+        next();
+      } catch (failure) {
+        res.status(failure instanceof RequestContractError ? failure.status : 500).json({success: false, message: failure instanceof RequestContractError ? failure.message : 'Authentication is unavailable'});
+      }
     });
     return;
   }
@@ -67,7 +76,9 @@ export const authenticateToken = async (
       return;
     }
 
-    req.user = decodedToken;
+    const context = await jwtAuthContext(decodedToken, token);
+    req.user = context;
+    req.authContext = context;
 
     next();
   } catch {

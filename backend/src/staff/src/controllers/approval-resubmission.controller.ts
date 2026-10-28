@@ -34,7 +34,7 @@ export const resubmitApprovalRequestController = async (req: BranchScopedRequest
       throw new RequestContractError(400, 'A quoted revision from correction details is required in If-Match');
     }
     const data = await resubmitApprovalRequest({requestId: String(req.params.requestId), actorId, branchId,
-      token: req.headers.authorization?.slice(7), reason: input.reason, revision: Number(precondition.slice(1, -1))});
+      token: req.authContext!, reason: input.reason, revision: Number(precondition.slice(1, -1))});
     res.setHeader('ETag', `"${data.revision}"`);
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).json({success: true, message: 'Approval request resubmitted', data});

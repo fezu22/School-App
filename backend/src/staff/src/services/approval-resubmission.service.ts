@@ -1,3 +1,4 @@
+import {type SessionAuthority, sessionIdentity} from './authenticated-session.service';
 import {HydratedDocument} from 'mongoose';
 import ApprovalRequest, {IApprovalRequest} from '../models/approvalRequest';
 import User from '../models/user';
@@ -5,7 +6,6 @@ import {ApprovalAccessError} from './approval-authority.policy';
 import {assertApprovalReferences, validateApprovalId} from './approval-scope.service';
 import {textField, RequestContractError} from '../utils/request-validation';
 import {withPrincipalWriteAuthority} from './principal-write-access.service';
-import {verifyAccessToken} from './jwt.service';
 
 const requesterRecord = async (requestId: string, actorId: string, branchId: string) => {
   validateApprovalId(requestId, 'request ID');
@@ -35,7 +35,7 @@ export const getRequesterResubmission = async (requestId: string, actorId: strin
   serializeResubmission(await requesterRecord(requestId, actorId, branchId));
 
 export const resubmitApprovalRequest = async (data: {
-  requestId: string; actorId: string; branchId: string; token?: string; reason: unknown; revision: number;
+  requestId: string; actorId: string; branchId: string; token?: SessionAuthority; reason: unknown; revision: number;
 }) => {
   const reason = textField(data.reason, 'request reason', 500, 1);
   if (!Number.isSafeInteger(data.revision) || data.revision < 0) throw new ApprovalAccessError(400, 'Invalid request revision');
@@ -45,7 +45,7 @@ export const resubmitApprovalRequest = async (data: {
     throw new ApprovalAccessError(409, 'Request changed or is not awaiting resubmission');
   }
   let identity;
-  try {identity = verifyAccessToken(data.token ?? '');}
+  try {identity = sessionIdentity(data.token ?? '');}
   catch {throw new RequestContractError(401, 'Session is unavailable');}
   if (!['principal', 'teacher', 'student'].includes(identity.role)) throw new RequestContractError(403, 'Requester is not authorized');
   const updated = await withPrincipalWriteAuthority(data, undefined, async session => {

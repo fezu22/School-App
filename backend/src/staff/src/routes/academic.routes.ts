@@ -41,7 +41,7 @@ const handle =
         });
     }
   };
-const token = (r: AuthenticatedRequest) => r.headers.authorization!.slice(7);
+const token = (r: AuthenticatedRequest) => r.authContext!;
 export const academicAdminRouter = Router();
 academicAdminRouter.use((_r, res, next) => {
   res.setHeader('Cache-Control', 'no-store');

@@ -24,7 +24,7 @@ test('integrated outer routes retain learner auth, mount papers and refuse unver
   const {app} = require('./server');
   await withServer(app, async get => {
     for (const path of ['/api/students', '/api/students/abc', '/api/students/me', '/api/parents/me', '/api/exam-papers']) assert.equal((await get(path)).status, 401, path);
-    for (const path of ['/api/live-lessons', '/api/live-lessons/test', '/api/staff-students/enrollment-options', '/api/attendance-review', '/api/sessions', '/api/sessions/abc/revoke', '/api/usage', '/api/backup', '/api/health']) assert.equal((await get(path)).status, 503, path);
+    for (const path of ['/api/live-lessons', '/api/live-lessons/test', '/api/staff-students/enrollment-options', '/api/attendance-review', '/api/sessions', '/api/sessions/abc/revoke', '/api/privileged-requests/pending', '/api/privileged-requests/abc/review', '/api/automation', '/api/automation/test/pause', '/api/usage', '/api/backup', '/api/health']) assert.equal((await get(path)).status, 503, path);
   });
   delete process.env.INTEGRATED_STAFF_ENABLED;
 });

@@ -15,15 +15,15 @@ export const enrollmentRouter = Router();
 enrollmentRouter.use(authenticateToken, requireRole('principal', 'super_admin'));
 
 enrollmentRouter.post('/admissions', requireRole('principal'), requirePermission(PERMISSIONS.STUDENTS_CREATE, PERMISSIONS.ENROLLMENT_MANAGE, PERMISSIONS.ENROLLMENT_VIEW, PERMISSIONS.STUDENTS_VIEW),
-  handle(req => admitStudent(req.user, req.headers.authorization!.slice(7), req.query, req.body), 201));
+  handle(req => admitStudent(req.user, req.authContext!, req.query, req.body), 201));
 enrollmentRouter.get('/:studentId/profile', requireRole('principal'), requirePermission(PERMISSIONS.STUDENTS_VIEW),
   handle(req => studentProfile(req.user, req.params.studentId, req.query)));
 enrollmentRouter.patch('/:studentId/profile', requireRole('principal'), requirePermission(PERMISSIONS.STUDENTS_UPDATE, PERMISSIONS.STUDENTS_VIEW),
-  handle(req => editStudentProfile(req.user, req.headers.authorization!.slice(7), req.params.studentId, req.query, req.body)));
+  handle(req => editStudentProfile(req.user, req.authContext!, req.params.studentId, req.query, req.body)));
 enrollmentRouter.get('/', requirePermission(PERMISSIONS.ENROLLMENT_VIEW), handle(req => listEnrollmentStudents(req.user, req.query)));
 enrollmentRouter.get('/enrollment-options', requirePermission(PERMISSIONS.ENROLLMENT_VIEW), handle(req => enrollmentOptions(req.user, req.query)));
 enrollmentRouter.get('/:studentId/enrollments', requirePermission(PERMISSIONS.ENROLLMENT_VIEW), handle(req => enrollmentDetail(req.user, req.params.studentId, req.query)));
-enrollmentRouter.post('/:studentId/enrollments', requirePermission(PERMISSIONS.ENROLLMENT_MANAGE), handle(req => mutateEnrollment(req.user, req.headers.authorization!.slice(7), req.params.studentId, undefined, 'enroll', req.query, req.body)));
+enrollmentRouter.post('/:studentId/enrollments', requirePermission(PERMISSIONS.ENROLLMENT_MANAGE), handle(req => mutateEnrollment(req.user, req.authContext!, req.params.studentId, undefined, 'enroll', req.query, req.body)));
 for (const action of ['transfer', 'promote', 'withdraw'] as const) enrollmentRouter.post('/:studentId/enrollments/:enrollmentId/' + action,
   requirePermission(action === 'promote' ? PERMISSIONS.ENROLLMENT_PROMOTE : action === 'withdraw' ? PERMISSIONS.ENROLLMENT_WITHDRAW : PERMISSIONS.ENROLLMENT_MANAGE),
-  handle(req => {objectBody(req.query, ['branchId']); return mutateEnrollment(req.user, req.headers.authorization!.slice(7), req.params.studentId, req.params.enrollmentId, action, req.query, req.body);}));
+  handle(req => {objectBody(req.query, ['branchId']); return mutateEnrollment(req.user, req.authContext!, req.params.studentId, req.params.enrollmentId, action, req.query, req.body);}));

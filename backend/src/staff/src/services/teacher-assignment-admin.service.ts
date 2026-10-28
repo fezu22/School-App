@@ -8,6 +8,7 @@ import Subject from '../models/subject';
 import TeacherAssignment from '../models/teacherAssignment';
 import { provisioningActor } from './teacher-assignment.service';
 import type { JwtPayload } from './jwt.service';
+import {requireAcademicBranch, schoolBranchFilter, schoolUserFilter} from './school-authority.service';
 import {
   objectBody,
   objectIdField,
@@ -63,6 +64,7 @@ export const getAssignmentOptions = async (
     ? await User.findOne({
         _id: teacherId,
         role: 'teacher',
+        ...schoolUserFilter(actor),
         ...(actor.role === 'principal' ? { branchId: actor.branchId } : {}),
       })
         .select('_id fullName email branchId isActive')
@@ -82,7 +84,7 @@ export const getAssignmentOptions = async (
     (selected && branchId !== String(selected.branchId))
   )
     throw missing();
-  const branchQuery = Branch.find({ isActive: true });
+  const branchQuery = Branch.find({ isActive: true, active: {$ne: false}, ...schoolBranchFilter(actor) });
   if (actor.role === 'principal')
     branchQuery.where('_id').equals(actor.branchId);
   const branches = await branchQuery
@@ -91,11 +93,7 @@ export const getAssignmentOptions = async (
     .limit(200)
     .lean();
   const target = branchId
-    ? await Branch.findById(branchId)
-        .where('isActive')
-        .equals(true)
-        .select('_id name code')
-        .lean()
+    ? await requireAcademicBranch(actor, branchId)
     : null;
   if (branchId && !target) throw missing();
   if (target && !branches.some(b => String(b._id) === branchId))
@@ -109,12 +107,13 @@ export const getAssignmentOptions = async (
   const filter = {
     role: 'teacher' as const,
     isActive: true,
+    ...schoolUserFilter(actor),
     ...(search
       ? {
-          $or: [
+          $and: [{$or: [
             { fullName: { $regex: escaped, $options: 'i' } },
             { email: { $regex: escaped, $options: 'i' } },
-          ],
+          ]}],
         }
       : {}),
   };
@@ -221,17 +220,13 @@ export const getManagedTeacherAssignments = async (
   const teacher = await User.findOne({
     _id: teacherId,
     role: 'teacher',
+    ...schoolUserFilter(actor),
     ...(actor.role === 'principal' ? { branchId: actor.branchId } : {}),
   })
     .select('_id fullName email branchId isActive')
     .lean();
-  if (
-    !teacher?.branchId ||
-    !(await Branch.exists({ isActive: true })
-      .where('_id')
-      .equals(teacher.branchId))
-  )
-    throw missing();
+  if (!teacher?.branchId) throw missing();
+  await requireAcademicBranch(actor, String(teacher.branchId));
   const [rows, total] = await Promise.all([
     TeacherAssignment.find()
       .where('teacherId')

@@ -1,8 +1,8 @@
+import {type SessionAuthority, sessionIdentity, revalidateAuthenticatedSession, authenticatedTransaction} from './authenticated-session.service';
 import User from '../models/user';
 import mongoose, {type ClientSession} from 'mongoose';
 import Branch from '../models/branch';
-import Session from '../models/session';
-import {verifyAccessToken} from './jwt.service';
+
 import {ROLE_PERMISSIONS} from '../constants/rolePermissions';
 import type {Permission} from '../constants/permissions';
 import {objectIdField, RequestContractError} from '../utils/request-validation';
@@ -14,7 +14,7 @@ export const PRINCIPAL_WRITE_ASSIGNEE_ROLES = ['principal', 'teacher'] as const;
 // after the target CAS, so even changes during that write are detected. MongoDB
 // conflicts/retries concurrent updates to these documents across processes.
 export async function withPrincipalWriteAuthority<T>(
-  scope: {actorId: string; branchId: string; token?: string}, permission: Permission | undefined,
+  scope: {actorId: string; branchId: string; token?: SessionAuthority}, permission: Permission | undefined,
   write: (session: ClientSession) => Promise<T>,
   validate?: (session: ClientSession) => Promise<void>,
   role: 'principal' | 'teacher' | 'student' = 'principal',
@@ -23,14 +23,14 @@ export async function withPrincipalWriteAuthority<T>(
   objectIdField(scope.branchId, 'branch ID');
   const loginIdentity = () => {
     try {
-      const identity = verifyAccessToken(scope.token ?? '');
+      const identity = sessionIdentity(scope.token ?? '');
       if (identity.userId !== scope.actorId || identity.role !== role) throw new Error();
     } catch {throw new RequestContractError(401, 'Session is unavailable');}
   };
   loginIdentity();
   const session = await mongoose.startSession();
   try {
-    return await session.withTransaction(async () => {
+    return await authenticatedTransaction(session, async () => {
       const result = await write(session);
       const branch = await Branch.collection.updateOne(
         {_id: new mongoose.Types.ObjectId(scope.branchId), isActive: true}, {$inc: {__v: 1}}, {session});
@@ -41,12 +41,7 @@ export async function withPrincipalWriteAuthority<T>(
       if (!actor.matchedCount) throw new RequestContractError(403, 'Principal write actor is not authorized');
       // Match the same token record as authenticateToken/isTokenRevoked. A
       // second unrevoked row must not revive a revoked first token record.
-      const currentLogin = await Session.findOne({token: scope.token}).session(session).lean();
-      if (!currentLogin) throw new RequestContractError(401, 'Session is unavailable');
-      const login = await Session.collection.updateOne(
-        {_id: currentLogin._id, token: scope.token, userId: new mongoose.Types.ObjectId(scope.actorId), role, isRevoked: false},
-        {$inc: {__v: 1}}, {session});
-      if (!login.matchedCount) throw new RequestContractError(401, 'Session is unavailable');
+      await revalidateAuthenticatedSession(scope.token, {userId: String(new mongoose.Types.ObjectId(scope.actorId)), role: role}, session);
       if (validate) await validate(session);
       loginIdentity();
       if (permission && !ROLE_PERMISSIONS[role].includes(permission)) throw new RequestContractError(403, 'Permission denied');

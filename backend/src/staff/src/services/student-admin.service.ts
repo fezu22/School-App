@@ -1,3 +1,4 @@
+import {type SessionAuthority} from './authenticated-session.service';
 import { createHmac } from 'node:crypto';
 import mongoose, { type ClientSession } from 'mongoose';
 import User from '../models/user';
@@ -195,7 +196,7 @@ export async function studentProfile(
 }
 export async function admitStudent(
   identity: JwtPayload | undefined,
-  token: string,
+  token: SessionAuthority,
   query: unknown,
   body: unknown,
 ) {
@@ -355,7 +356,7 @@ export async function admitStudent(
 }
 export async function editStudentProfile(
   identity: JwtPayload | undefined,
-  token: string,
+  token: SessionAuthority,
   id: unknown,
   query: unknown,
   body: unknown,
